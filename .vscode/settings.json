@@ -1,0 +1,24 @@
+{
+  "liveServer.settings.root": "/build",
+  "liveServer.settings.file": "/index.html",
+  "better-comments.tags": [
+    {
+      "tag": "NOTE",
+      "color": "#03a6ff",
+      "strikethrough": false,
+      "underline": false,
+      "backgroundColor": "transparent",
+      "bold": false,
+      "italic": false
+    },
+    {
+      "tag": "TODO",
+      "color": "#FF8C00",
+      "strikethrough": false,
+      "underline": false,
+      "backgroundColor": "transparent",
+      "bold": false,
+      "italic": false
+    }
+  ]
+}
