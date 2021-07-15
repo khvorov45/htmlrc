@@ -4,7 +4,7 @@
   "better-comments.tags": [
     {
       "tag": "NOTE",
-      "color": "#03a6ff",
+      "color": "#FF69B4",
       "strikethrough": false,
       "underline": false,
       "backgroundColor": "transparent",
