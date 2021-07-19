@@ -5,10 +5,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
 
-    let output_contents = input_contents.clone();
+    let mut output_contents = input_contents.clone();
 
     let mut input_to_parse = input_contents.as_str();
-    while let Some(substitution) = Substitution::find_first(&mut input_to_parse) {}
+    while let Some(substitution) = Substitution::find_first(&mut input_to_parse) {
+        output_contents =
+            output_contents.replace(substitution.from.as_str(), substitution.to.as_str());
+    }
 
     let output_dir = std::path::PathBuf::from("build");
     if output_dir.is_dir() {
@@ -27,30 +30,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Debug)]
 struct Substitution {
-    literal: String,
-    component_name: String,
+    /// Literal string to be substituted in the output
+    from: String,
+    /// Literal string to replace `from` with in the output
+    to: String,
 }
 
 impl Substitution {
     fn find_first(string: &mut &str) -> Option<Self> {
-        fn find_start(string: &str) -> &str {
+        /// Search for the opening tag `<` that's followed by an uppercase letter
+        fn find_component<'a>(string: &mut &'a str) -> (&'a str, Option<&'a str>) {
             // NOTE(sen) Does not handle nodes inside comments
             let mut start_index = string.len();
             if !string.is_empty() {
                 for string_index in 0..(string.len() - 1) {
-                    if string.chars().nth(string_index) == Some('<')
-                        && string.chars().nth(string_index + 1) != Some('!')
-                    {
-                        start_index = string_index;
-                        break;
+                    let next_char = string.chars().nth(string_index + 1);
+                    if string.chars().nth(string_index) == Some('<') {
+                        if let Some(next_char) = next_char {
+                            if next_char.is_uppercase() {
+                                start_index = string_index;
+                                break;
+                            }
+                        }
                     }
                 }
             }
-            &string[start_index..]
+            let mut end_index = string.len();
+            let mut two_parts = false;
+            for string_index in start_index..string.len() {
+                let this_char = string.chars().nth(string_index);
+                let next_char = string.chars().nth(string_index + 1);
+                if this_char == Some('/') && next_char == Some('>') {
+                    end_index = string_index + 1;
+                    break;
+                } else if this_char == Some('>') {
+                    two_parts = true;
+                    end_index = string_index;
+                    break;
+                }
+            }
+            if two_parts {
+                // TODO(sen) Handle two-parters somehow
+            }
+
+            let component = (&string[start_index..=end_index], None);
+            *string = &string[(end_index + 1)..];
+            component
         }
 
-        let mut node = None;
-        let mut string = find_start(string);
+        let mut substitution = None;
+        let component = find_component(string);
+        println!("{:#?}", component);
 
         if !string.is_empty() {
             fn find_name(string: &mut &str) -> String {
@@ -64,7 +94,7 @@ impl Substitution {
                 name.to_string()
             }
 
-            let name = find_name(&mut string);
+            let name = find_name(string);
 
             fn find_params(string: &mut &str) -> std::collections::HashMap<String, String> {
                 let string_to_parse = string.trim_start();
@@ -81,14 +111,14 @@ impl Substitution {
                 params
             }
 
-            let params = find_params(&mut string);
+            let params = find_params(string);
 
             fn find_children(string: &mut &str) -> Vec<Substitution> {
                 let children = Vec::new();
-
-                if let Some(stripped) = string.strip_prefix("/>") {
+                let string_to_parse = string.trim_start();
+                if let Some(stripped) = string_to_parse.strip_prefix("/>") {
                     *string = stripped;
-                } else if let Some(stripped) = string.strip_prefix(">") {
+                } else if let Some(stripped) = string_to_parse.strip_prefix(">") {
                     *string = stripped;
                 } else {
                     panic!("unexpected string");
@@ -97,11 +127,9 @@ impl Substitution {
                 children
             }
 
-            let children = find_children(&mut string);
-
-            string = &string[string.len()..];
+            let children = find_children(string);
         }
 
-        node
+        substitution
     }
 }
