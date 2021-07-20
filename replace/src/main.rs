@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_dir = std::path::PathBuf::from(".");
-    let input_file_name = "component-plain.html";
+    let input_file_name = "component-child.html";
 
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
@@ -43,8 +43,10 @@ impl ComponentUsed {
         let mut result = None;
         let mut component = ComponentUsed::default();
 
+        // TODO(sen) Is this check necessary?
         if !string.is_empty() {
             let mut string_iter = string.chars().peekable();
+            // TODO(sen) Use enumerate instead?
             let mut counter = 0;
             let mut component_found = false;
             while !component_found {
@@ -95,7 +97,36 @@ impl ComponentUsed {
                 }
 
                 if second_part_present {
-                    // TODO(sen) Find second part here
+                    'second_part_search: while let Some(this_char) = string_iter.next() {
+                        counter += 1;
+                        if let Some(next_char) = string_iter.peek().copied() {
+                            if this_char == '<' && next_char == '/' {
+                                let test_name =
+                                    &string[(counter + 1)..(counter + 1 + component.name.len())];
+                                if component.name == test_name {
+                                    let mut second_part = [0, 0];
+                                    second_part[0] = counter - 2;
+                                    for _ in 0..component.name.len() {
+                                        string_iter.next();
+                                        counter += 1;
+                                    }
+
+                                    loop {
+                                        if let Some(this_char) = string_iter.next() {
+                                            counter += 1;
+                                            if this_char == '>' {
+                                                second_part[1] = counter - 1;
+                                                component.second_part = Some(second_part);
+                                                break 'second_part_search;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
 
                 result = Some(component);
