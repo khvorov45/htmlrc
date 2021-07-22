@@ -9,17 +9,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output_contents = input_contents.clone();
 
-    let mut input_to_parse = input_contents.as_str();
-    while let Some(component_used) = ComponentUsed::find_first(input_to_parse) {
+    let mut current_offset = 0;
+    while let Some(component_used) =
+        ComponentUsed::find_with_offset(input_contents.as_str(), current_offset)
+    {
         println!("{:#?}", component_used);
         println!(
             "first part: {}",
-            &input_to_parse[component_used.first_part[0]..=component_used.first_part[1]],
+            &input_contents[component_used.first_part[0]..=component_used.first_part[1]],
         );
         if let Some(part) = component_used.second_part {
-            println!("second part: {}", &input_to_parse[part[0]..=part[1]],);
+            println!("second part: {}", &input_contents[part[0]..=part[1]],);
         }
-        input_to_parse = &input_to_parse[component_used.first_part[1]..];
+        current_offset = component_used.first_part[1];
     }
 
     let output_dir = std::path::PathBuf::from("build");
@@ -124,6 +126,18 @@ impl ComponentUsed {
             }
 
             result = Some(component);
+        }
+        result
+    }
+    fn find_with_offset(string: &str, offset: usize) -> Option<ComponentUsed> {
+        let mut result = ComponentUsed::find_first(&string[offset..]);
+        if let Some(component) = result.as_mut() {
+            component.first_part[0] += offset;
+            component.first_part[1] += offset;
+            if let Some(part) = component.second_part.as_mut() {
+                part[0] += offset;
+                part[1] += offset;
+            }
         }
         result
     }
