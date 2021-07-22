@@ -43,16 +43,13 @@ impl ComponentUsed {
         let mut result = None;
         let mut component = ComponentUsed::default();
 
-        let mut string_iter = string.chars().peekable();
-        // TODO(sen) Use enumerate instead?
-        let mut counter = 0;
+        let mut string_iter = string.chars().enumerate().peekable();
         let mut component_found = false;
         while !component_found {
-            if let Some(this_char) = string_iter.next() {
-                counter += 1;
-                if let Some(next_char) = string_iter.peek() {
+            if let Some((this_index, this_char)) = string_iter.next() {
+                if let Some((_, next_char)) = string_iter.peek() {
                     if this_char == '<' && next_char.is_uppercase() {
-                        component.first_part[0] = counter - 1;
+                        component.first_part[0] = this_index;
                         component_found = true;
                     }
                 } else {
@@ -63,57 +60,49 @@ impl ComponentUsed {
             }
         }
         if component_found {
-            let name_start = counter;
+            let (name_start, _) = string_iter.next().unwrap();
             loop {
-                string_iter.next();
-                counter += 1;
-                if let Some(next_char) = string_iter.peek().copied() {
+                if let Some((next_index, next_char)) = string_iter.peek().copied() {
                     if next_char.is_whitespace() || next_char == '/' || next_char == '>' {
-                        component.name = string[name_start..counter].to_string();
+                        component.name = string[name_start..next_index].to_string();
                         break;
                     }
-                } else {
-                    break;
+                    string_iter.next();
                 }
             }
 
             // TODO(sen) Parse arguments here
 
             let mut second_part_present = false;
-            while let Some(this_char) = string_iter.next() {
-                counter += 1;
-                let next_char = string_iter.peek().copied();
-                if this_char == '/' && next_char == Some('>') {
-                    component.first_part[1] = counter;
-                    break;
-                }
+            while let Some((this_index, this_char)) = string_iter.next() {
                 if this_char == '>' {
                     second_part_present = true;
-                    component.first_part[1] = counter - 1;
+                    component.first_part[1] = this_index;
                     break;
+                }
+                if let Some((next_index, next_char)) = string_iter.peek().copied() {
+                    if this_char == '/' && next_char == '>' {
+                        component.first_part[1] = next_index;
+                        break;
+                    }
                 }
             }
 
             if second_part_present {
-                'second_part_search: while let Some(this_char) = string_iter.next() {
-                    counter += 1;
-                    if let Some(next_char) = string_iter.peek().copied() {
+                'second_part_search: while let Some((this_index, this_char)) = string_iter.next() {
+                    if let Some((next_index, next_char)) = string_iter.peek().copied() {
                         if this_char == '<' && next_char == '/' {
                             let test_name =
-                                &string[(counter + 1)..(counter + 1 + component.name.len())];
+                                &string[(next_index + 1)..(next_index + 1 + component.name.len())];
                             if component.name == test_name {
-                                let mut second_part = [0, 0];
-                                second_part[0] = counter - 2;
+                                let mut second_part = [this_index, 0];
                                 for _ in 0..component.name.len() {
                                     string_iter.next();
-                                    counter += 1;
                                 }
-
                                 loop {
-                                    if let Some(this_char) = string_iter.next() {
-                                        counter += 1;
+                                    if let Some((this_index, this_char)) = string_iter.next() {
                                         if this_char == '>' {
-                                            second_part[1] = counter - 1;
+                                            second_part[1] = this_index;
                                             component.second_part = Some(second_part);
                                             break 'second_part_search;
                                         }
