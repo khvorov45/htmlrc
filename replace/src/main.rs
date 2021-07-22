@@ -12,6 +12,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input_to_parse = input_contents.as_str();
     while let Some(component_used) = ComponentUsed::find_first(input_to_parse) {
         println!("{:#?}", component_used);
+        println!(
+            "first part: {}",
+            &input_to_parse[component_used.first_part[0]..=component_used.first_part[1]],
+        );
+        if let Some(part) = component_used.second_part {
+            println!("second part: {}", &input_to_parse[part[0]..=part[1]],);
+        }
         input_to_parse = &input_to_parse[component_used.first_part[1]..];
     }
 
