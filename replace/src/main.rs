@@ -1,28 +1,19 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_dir = std::path::PathBuf::from(".");
-    let input_file_name = "two-components.html";
+    let input_file_name = "component-nested.html";
 
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
 
-    let output_contents = input_contents.clone();
+    let mut components = HashMap::<String, Component>::new();
 
-    let mut current_offset = 0;
-    while let Some(component_used) =
-        ComponentUsed::find_with_offset(input_contents.as_str(), current_offset)
-    {
-        println!("{:#?}", component_used);
-        println!(
-            "first part: {}",
-            &input_contents[component_used.first_part[0]..=component_used.first_part[1]],
-        );
-        if let Some(part) = component_used.second_part {
-            println!("second part: {}", &input_contents[part[0]..=part[1]],);
-        }
-        current_offset = component_used.first_part[1];
-    }
+    let output_contents = resolve_components(
+        input_contents.as_str(),
+        input_dir.as_path(),
+        &mut components,
+    );
 
     let output_dir = std::path::PathBuf::from("build");
     if output_dir.is_dir() {
@@ -141,4 +132,54 @@ impl ComponentUsed {
         }
         result
     }
+}
+
+struct Component {
+    name: String,
+    contents: String,
+    // TODO(sen) Handle arguments
+}
+
+impl Component {
+    fn from_file(path: &std::path::Path, components: &mut HashMap<String, Component>) -> Component {
+        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+        let input_contents = std::fs::read_to_string(path).unwrap();
+
+        let contents =
+            resolve_components(input_contents.as_str(), path.parent().unwrap(), components);
+
+        Component { name, contents }
+    }
+}
+
+fn resolve_components(
+    input_contents: &str,
+    input_dir: &Path,
+    components: &mut HashMap<String, Component>,
+) -> String {
+    let mut result = String::new();
+    let mut current_offset = 0;
+    while let Some(component_used) = ComponentUsed::find_with_offset(input_contents, current_offset)
+    {
+        result.push_str(&input_contents[current_offset..component_used.first_part[0]]);
+
+        if components.get(&component_used.name).is_none() {
+            let component_file_path =
+                input_dir.join(format!("{}.html", component_used.name.as_str()));
+            let component = Component::from_file(component_file_path.as_path(), components);
+            components.insert(component.name.clone(), component);
+        }
+
+        // TODO(sen) Remove a potentially unnecessary lookup
+        let component = components.get(&component_used.name).unwrap();
+
+        // TODO(sen) Handle two-part components
+        result.push_str(component.contents.as_str());
+
+        current_offset = component_used.first_part[1] + 1;
+    }
+
+    result.push_str(&input_contents[current_offset..]);
+
+    result
 }
