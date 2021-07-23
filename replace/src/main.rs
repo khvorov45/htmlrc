@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_dir = std::path::PathBuf::from(".");
-    let input_file_name = "component-child.html";
+    let input_file_name = "component-child-multi.html";
 
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
@@ -218,8 +218,40 @@ fn resolve_components(
         current_offset = component_used.first_part[1] + 1;
         if let Some(second_part) = component_used.second_part {
             let children = &input_contents[(component_used.first_part[1] + 1)..second_part[0]];
-            // TODO(sen) Handle multiple slots
-            contents_slots_resolved = component_contents_to_write.replace("<slot />", children);
+
+            println!("{}\n---\n{}", component_contents_to_write, children);
+
+            if component_contents_to_write.contains("<slot />") {
+                contents_slots_resolved = component_contents_to_write.replace("<slot />", children);
+            } else {
+                let mut children_with_offset = children;
+                let mut contents_slots_resolved_partially = component_contents_to_write.to_string();
+                while let Some(slot_start) = children_with_offset.find("<slot") {
+                    children_with_offset = &children_with_offset[(slot_start + 5)..];
+                    let name_start = children_with_offset
+                        .find(|c: char| c.is_alphabetic())
+                        .unwrap();
+
+                    children_with_offset = &children_with_offset[name_start..];
+                    let open_tag_end = children_with_offset.find('>').unwrap();
+
+                    let child_name = &children_with_offset[..open_tag_end];
+
+                    children_with_offset = &children_with_offset[(open_tag_end + 1)..];
+
+                    let slot_end = children_with_offset.find("</slot>").unwrap();
+
+                    let child_content = &children_with_offset[..slot_end];
+
+                    // TODO(sen) Reduce string copying
+                    contents_slots_resolved_partially = contents_slots_resolved_partially
+                        .replace(format!("<slot {} />", child_name).as_str(), child_content);
+
+                    children_with_offset = &children_with_offset[(slot_end + 7)..];
+                }
+                contents_slots_resolved = contents_slots_resolved_partially;
+            }
+
             component_contents_to_write = contents_slots_resolved.as_str();
             current_offset = second_part[1] + 1;
         }
