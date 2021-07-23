@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
 
-    let mut components = HashMap::<String, Component>::new();
+    let mut components = HashMap::<String, String>::new();
 
     let output_contents = resolve_components(
         input_contents.as_str(),
@@ -134,28 +134,10 @@ impl ComponentUsed {
     }
 }
 
-struct Component {
-    name: String,
-    contents: String,
-    // TODO(sen) Handle arguments
-}
-
-impl Component {
-    fn from_file(path: &std::path::Path, components: &mut HashMap<String, Component>) -> Component {
-        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
-        let input_contents = std::fs::read_to_string(path).unwrap();
-
-        let contents =
-            resolve_components(input_contents.as_str(), path.parent().unwrap(), components);
-
-        Component { name, contents }
-    }
-}
-
 fn resolve_components(
     input_contents: &str,
     input_dir: &Path,
-    components: &mut HashMap<String, Component>,
+    components: &mut HashMap<String, String>,
 ) -> String {
     let mut result = String::new();
     let mut current_offset = 0;
@@ -164,20 +146,29 @@ fn resolve_components(
         result.push_str(&input_contents[current_offset..component_used.first_part[0]]);
 
         if components.get(&component_used.name).is_none() {
-            let component_file_path =
-                input_dir.join(format!("{}.html", component_used.name.as_str()));
-            let component = Component::from_file(component_file_path.as_path(), components);
-            components.insert(component.name.clone(), component);
+            let component_contents = {
+                let component_file_path =
+                    input_dir.join(format!("{}.html", component_used.name.as_str()));
+                let input_contents =
+                    std::fs::read_to_string(component_file_path.as_path()).unwrap();
+                resolve_components(input_contents.as_str(), input_dir, components)
+            };
+            components.insert(component_used.name.clone(), component_contents);
         }
 
-        let component = components.get(&component_used.name).unwrap();
+        let component_contents = components.get(&component_used.name).unwrap();
 
-        let mut component_contents_to_write = component.contents.as_str();
+        let mut component_contents_to_write = component_contents.as_str();
+
+        if !component_used.params.is_empty() {
+            // TODO(sen) Handle arguments
+        }
+
         let contents_slots_resolved: String;
         current_offset = component_used.first_part[1] + 1;
         if let Some(second_part) = component_used.second_part {
             let children = &input_contents[(component_used.first_part[1] + 1)..second_part[0]];
-            contents_slots_resolved = resolve_children(component.contents.as_str(), children);
+            contents_slots_resolved = resolve_children(component_contents.as_str(), children);
             component_contents_to_write = contents_slots_resolved.as_str();
             current_offset = second_part[1] + 1;
         }
