@@ -38,143 +38,131 @@ struct ComponentUsed {
     params: HashMap<String, String>,
 }
 
-impl ComponentUsed {
-    fn find_first(string: &str) -> Option<ComponentUsed> {
-        let mut result = None;
-        let mut component = ComponentUsed::default();
+fn find_first_component(string: &str, offset: usize) -> Option<ComponentUsed> {
+    let string_with_offset = &string[offset..];
 
-        let mut string_iter = string.chars().enumerate().peekable();
-        let mut component_found = false;
-        while !component_found {
-            if let Some((this_index, this_char)) = string_iter.next() {
-                if let Some((_, next_char)) = string_iter.peek() {
-                    if this_char == '<' && next_char.is_uppercase() {
-                        component.first_part[0] = this_index;
-                        component_found = true;
-                    }
-                } else {
-                    break;
+    let mut result = None;
+    let mut component = ComponentUsed::default();
+
+    let mut string_iter = string_with_offset.chars().enumerate().peekable();
+    let mut component_found = false;
+    while !component_found {
+        if let Some((this_index, this_char)) = string_iter.next() {
+            if let Some((_, next_char)) = string_iter.peek() {
+                if this_char == '<' && next_char.is_uppercase() {
+                    component.first_part[0] = this_index;
+                    component_found = true;
                 }
             } else {
                 break;
             }
+        } else {
+            break;
         }
-        if component_found {
-            // NOTE(sen) Parse name
-            let (name_start, _) = string_iter.next().unwrap();
-            loop {
-                if let Some((next_index, next_char)) = string_iter.peek().copied() {
-                    if next_char.is_whitespace() || next_char == '/' || next_char == '>' {
-                        component.name = string[name_start..next_index].to_string();
-                        break;
-                    }
+    }
+    if component_found {
+        // NOTE(sen) Parse name
+        let (name_start, _) = string_iter.next().unwrap();
+        loop {
+            if let Some((next_index, next_char)) = string_iter.peek().copied() {
+                if next_char.is_whitespace() || next_char == '/' || next_char == '>' {
+                    component.name = string_with_offset[name_start..next_index].to_string();
+                    break;
+                }
+                string_iter.next();
+            }
+        }
+
+        // NOTE(sen) Parse arguments
+        loop {
+            if let Some((next_index, next_char)) = string_iter.peek().copied() {
+                if next_char == '/' || next_char == '>' {
+                    break;
+                }
+                if next_char.is_alphabetic() {
+                    let name = {
+                        let name_start = next_index;
+                        let mut name_end = name_start + 1;
+                        while let Some((this_index, this_char)) = string_iter.next() {
+                            if !this_char.is_alphanumeric() {
+                                name_end = this_index - 1;
+                                break;
+                            }
+                        }
+                        &string_with_offset[name_start..=name_end]
+                    };
+
+                    let value = {
+                        let mut value_start = 0;
+                        while let Some((this_index, this_char)) = string_iter.next() {
+                            if this_char == '"' {
+                                value_start = this_index + 1;
+                                break;
+                            }
+                        }
+                        let mut value_end = value_start + 1;
+                        while let Some((this_index, this_char)) = string_iter.next() {
+                            if this_char == '"' {
+                                value_end = this_index - 1;
+                                break;
+                            }
+                        }
+
+                        &string_with_offset[value_start..=value_end]
+                    };
+                    component.params.insert(name.to_string(), value.to_string());
+                } else {
                     string_iter.next();
                 }
             }
+        }
 
-            // NOTE(sen) Parse arguments
-            loop {
-                if let Some((next_index, next_char)) = string_iter.peek().copied() {
-                    if next_char == '/' || next_char == '>' {
-                        break;
-                    }
-                    if next_char.is_alphabetic() {
-                        let name = {
-                            let name_start = next_index;
-                            let mut name_end = name_start + 1;
-                            while let Some((this_index, this_char)) = string_iter.next() {
-                                if !this_char.is_alphanumeric() {
-                                    name_end = this_index - 1;
-                                    break;
-                                }
-                            }
-                            &string[name_start..=name_end]
-                        };
-
-                        let value = {
-                            let mut value_start = 0;
-                            while let Some((this_index, this_char)) = string_iter.next() {
-                                if this_char == '"' {
-                                    value_start = this_index + 1;
-                                    break;
-                                }
-                            }
-                            let mut value_end = value_start + 1;
-                            while let Some((this_index, this_char)) = string_iter.next() {
-                                if this_char == '"' {
-                                    value_end = this_index - 1;
-                                    break;
-                                }
-                            }
-
-                            &string[value_start..=value_end]
-                        };
-                        component.params.insert(name.to_string(), value.to_string());
-                    } else {
-                        string_iter.next();
-                    }
-                }
+        let mut second_part_present = false;
+        while let Some((this_index, this_char)) = string_iter.next() {
+            if this_char == '>' {
+                second_part_present = true;
+                component.first_part[1] = this_index + offset;
+                break;
             }
-
-            let mut second_part_present = false;
-            while let Some((this_index, this_char)) = string_iter.next() {
-                if this_char == '>' {
-                    second_part_present = true;
-                    component.first_part[1] = this_index;
+            if let Some((next_index, next_char)) = string_iter.peek().copied() {
+                if this_char == '/' && next_char == '>' {
+                    component.first_part[1] = next_index + offset;
                     break;
                 }
-                if let Some((next_index, next_char)) = string_iter.peek().copied() {
-                    if this_char == '/' && next_char == '>' {
-                        component.first_part[1] = next_index;
-                        break;
-                    }
-                }
             }
+        }
 
-            if second_part_present {
-                'second_part_search: while let Some((this_index, this_char)) = string_iter.next() {
-                    if let Some((next_index, next_char)) = string_iter.peek().copied() {
-                        if this_char == '<' && next_char == '/' {
-                            let test_name =
-                                &string[(next_index + 1)..(next_index + 1 + component.name.len())];
-                            if component.name == test_name {
-                                let mut second_part = [this_index, 0];
-                                for _ in 0..component.name.len() {
-                                    string_iter.next();
-                                }
-                                loop {
-                                    if let Some((this_index, this_char)) = string_iter.next() {
-                                        if this_char == '>' {
-                                            second_part[1] = this_index;
-                                            component.second_part = Some(second_part);
-                                            break 'second_part_search;
-                                        }
+        if second_part_present {
+            'second_part_search: while let Some((this_index, this_char)) = string_iter.next() {
+                if let Some((next_index, next_char)) = string_iter.peek().copied() {
+                    if this_char == '<' && next_char == '/' {
+                        let test_name = &string_with_offset
+                            [(next_index + 1)..(next_index + 1 + component.name.len())];
+                        if component.name == test_name {
+                            let mut second_part = [this_index + offset, 0];
+                            for _ in 0..component.name.len() {
+                                string_iter.next();
+                            }
+                            loop {
+                                if let Some((this_index, this_char)) = string_iter.next() {
+                                    if this_char == '>' {
+                                        second_part[1] = this_index + offset;
+                                        component.second_part = Some(second_part);
+                                        break 'second_part_search;
                                     }
                                 }
                             }
                         }
-                    } else {
-                        break;
                     }
+                } else {
+                    break;
                 }
             }
+        }
 
-            result = Some(component);
-        }
-        result
+        result = Some(component);
     }
-    fn find_with_offset(string: &str, offset: usize) -> Option<ComponentUsed> {
-        let mut result = ComponentUsed::find_first(&string[offset..]);
-        if let Some(component) = result.as_mut() {
-            component.first_part[0] += offset;
-            component.first_part[1] += offset;
-            if let Some(part) = component.second_part.as_mut() {
-                part[0] += offset;
-                part[1] += offset;
-            }
-        }
-        result
-    }
+    result
 }
 
 fn resolve_components(
@@ -184,8 +172,7 @@ fn resolve_components(
 ) -> String {
     let mut result = String::new();
     let mut current_offset = 0;
-    while let Some(component_used) = ComponentUsed::find_with_offset(input_contents, current_offset)
-    {
+    while let Some(component_used) = find_first_component(input_contents, current_offset) {
         result.push_str(&input_contents[current_offset..component_used.first_part[0]]);
 
         if components.get(&component_used.name).is_none() {
