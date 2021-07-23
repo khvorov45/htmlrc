@@ -203,15 +203,22 @@ fn resolve_components(
 
         let mut component_contents_to_write = component_contents.as_str();
 
+        let mut contents_params_resolved: String;
         if !component_used.params.is_empty() {
-            // TODO(sen) Handle arguments
+            contents_params_resolved = component_contents_to_write.to_string();
+            for (param_name, param_value) in &component_used.params {
+                // TODO(sen) Reduce string copying here
+                contents_params_resolved = contents_params_resolved
+                    .replace(format!("${}", param_name).as_str(), param_value);
+            }
+            component_contents_to_write = contents_params_resolved.as_str();
         }
 
         let contents_slots_resolved: String;
         current_offset = component_used.first_part[1] + 1;
         if let Some(second_part) = component_used.second_part {
             let children = &input_contents[(component_used.first_part[1] + 1)..second_part[0]];
-            contents_slots_resolved = resolve_children(component_contents.as_str(), children);
+            contents_slots_resolved = resolve_children(component_contents_to_write, children);
             component_contents_to_write = contents_slots_resolved.as_str();
             current_offset = second_part[1] + 1;
         }
