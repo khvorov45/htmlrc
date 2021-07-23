@@ -170,7 +170,6 @@ fn resolve_components(
             components.insert(component.name.clone(), component);
         }
 
-        // TODO(sen) Remove a potentially unnecessary lookup
         let component = components.get(&component_used.name).unwrap();
 
         let mut component_contents_to_write = component.contents.as_str();
