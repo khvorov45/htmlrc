@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_dir = std::path::PathBuf::from(".");
-    let input_file_name = "component-nested.html";
+    let input_file_name = "component-child.html";
 
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
@@ -173,13 +173,25 @@ fn resolve_components(
         // TODO(sen) Remove a potentially unnecessary lookup
         let component = components.get(&component_used.name).unwrap();
 
-        // TODO(sen) Handle two-part components
-        result.push_str(component.contents.as_str());
-
+        let mut component_contents_to_write = component.contents.as_str();
+        let contents_slots_resolved: String;
         current_offset = component_used.first_part[1] + 1;
+        if let Some(second_part) = component_used.second_part {
+            let children = &input_contents[(component_used.first_part[1] + 1)..second_part[0]];
+            contents_slots_resolved = resolve_children(component.contents.as_str(), children);
+            component_contents_to_write = contents_slots_resolved.as_str();
+            current_offset = second_part[1] + 1;
+        }
+        result.push_str(component_contents_to_write);
     }
 
     result.push_str(&input_contents[current_offset..]);
 
     result
+}
+
+fn resolve_children(input: &str, children: &str) -> String {
+    // TODO(sen) Handle multiple slots
+    let result = input.to_string();
+    result.replace("<slot />", children)
 }
