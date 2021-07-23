@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_dir = std::path::PathBuf::from(".");
-    let input_file_name = "component-child.html";
+    let input_file_name = "component-param.html";
 
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
@@ -60,6 +60,7 @@ impl ComponentUsed {
             }
         }
         if component_found {
+            // NOTE(sen) Parse name
             let (name_start, _) = string_iter.next().unwrap();
             loop {
                 if let Some((next_index, next_char)) = string_iter.peek().copied() {
@@ -71,7 +72,51 @@ impl ComponentUsed {
                 }
             }
 
-            // TODO(sen) Parse arguments here
+            // NOTE(sen) Parse arguments
+            loop {
+                if let Some((next_index, next_char)) = string_iter.peek().copied() {
+                    if next_char == '/' || next_char == '>' {
+                        break;
+                    }
+                    if next_char.is_alphabetic() {
+                        let name = {
+                            let name_start = next_index;
+                            let mut name_end = name_start + 1;
+                            while let Some((this_index, this_char)) = string_iter.next() {
+                                if !this_char.is_alphanumeric() {
+                                    name_end = this_index - 1;
+                                    break;
+                                }
+                            }
+                            &string[name_start..=name_end]
+                        };
+
+                        let value = {
+                            let mut value_start = 0;
+                            while let Some((this_index, this_char)) = string_iter.next() {
+                                if this_char == '"' {
+                                    value_start = this_index + 1;
+                                    break;
+                                }
+                            }
+                            let mut value_end = value_start + 1;
+                            while let Some((this_index, this_char)) = string_iter.next() {
+                                if this_char == '"' {
+                                    value_end = this_index - 1;
+                                    break;
+                                }
+                            }
+
+                            &string[value_start..=value_end]
+                        };
+                        component.params.insert(name.to_string(), value.to_string());
+                    } else {
+                        string_iter.next();
+                    }
+                }
+            }
+
+            println!("{:?}", component.params);
 
             let mut second_part_present = false;
             while let Some((this_index, this_char)) = string_iter.next() {
