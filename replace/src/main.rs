@@ -116,8 +116,6 @@ impl ComponentUsed {
                 }
             }
 
-            println!("{:?}", component.params);
-
             let mut second_part_present = false;
             while let Some((this_index, this_char)) = string_iter.next() {
                 if this_char == '>' {
