@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_dir = std::path::PathBuf::from(".");
-    let input_file_name = "component-child-multi.html";
+    let input_file_name = "component-child.html";
 
     let input_file = input_dir.join(input_file_name);
     let input_contents = std::fs::read_to_string(input_file).unwrap();
@@ -199,7 +199,7 @@ fn resolve_components(
             components.insert(component_used.name.clone(), component_contents);
         }
 
-        let component_contents = components.get(&component_used.name).unwrap();
+        let component_contents = components.get(&component_used.name).unwrap().clone();
 
         let mut component_contents_to_write = component_contents.as_str();
 
@@ -217,14 +217,17 @@ fn resolve_components(
         let contents_slots_resolved: String;
         current_offset = component_used.first_part[1] + 1;
         if let Some(second_part) = component_used.second_part {
-            let children = &input_contents[(component_used.first_part[1] + 1)..second_part[0]];
-
-            println!("{}\n---\n{}", component_contents_to_write, children);
+            let children = resolve_components(
+                &input_contents[(component_used.first_part[1] + 1)..second_part[0]],
+                input_dir,
+                components,
+            );
 
             if component_contents_to_write.contains("<slot />") {
-                contents_slots_resolved = component_contents_to_write.replace("<slot />", children);
+                contents_slots_resolved =
+                    component_contents_to_write.replace("<slot />", children.as_str());
             } else {
-                let mut children_with_offset = children;
+                let mut children_with_offset = children.as_str();
                 let mut contents_slots_resolved_partially = component_contents_to_write.to_string();
                 while let Some(slot_start) = children_with_offset.find("<slot") {
                     children_with_offset = &children_with_offset[(slot_start + 5)..];
