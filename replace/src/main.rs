@@ -58,7 +58,7 @@ fn resolve_components(
             if let Some((this_index, this_char)) = string_iter.next() {
                 if let Some((_, next_char)) = string_iter.peek() {
                     if this_char == '<' && next_char.is_uppercase() {
-                        component.first_part[0] = this_index;
+                        component.first_part[0] = this_index + offset;
                         component_found = true;
                     }
                 } else {
