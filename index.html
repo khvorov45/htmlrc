@@ -1,13 +1,50 @@
 <!DOCTYPE html>
 <head>
   <script>
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms))
+    }
+
     routes = {
       "/": "<Home />",
       "/page1": "<Page1 />",
     }
 
+    let loginReq = null
+    async function login() {
+      // NOTE(sen) See if we are already logged in
+      let newLoginReq = sessionStorage.getItem("login")
+      if (newLoginReq === null) {
+        // NOTE(sen) Simulate an API request
+        await sleep(1000)
+        newLoginReq = {
+          status: "err",
+        }
+      } else {
+        newLoginReq = JSON.parse(newLoginReq)
+      }
+      if (
+        loginReq === null ||
+        (loginReq.status === "err" && newLoginReq.status === "ok")
+      ) {
+        loginReq = newLoginReq
+        setRouteContent(window.location.pathname)
+      }
+      if (loginReq.status === "ok") {
+        sessionStorage.setItem("login", JSON.stringify(loginReq))
+      }
+    }
+
     function setRouteContent(path) {
-      document.getElementById("page").innerHTML = routes[path]
+      if (loginReq === null) {
+        document.getElementById("page").innerHTML = "<p>Loging in...</p>"
+      } else if (loginReq.status === "err") {
+        document.getElementById("page").innerHTML = "<p>Login failed</p>"
+      } else {
+        path = path.replace(".html", "")
+        path = path.replace("/index", "/")
+        document.getElementById("page").innerHTML = routes[path]
+      }
     }
 
     // NOTE(sen) Back browser button
@@ -35,11 +72,21 @@
 
 <body>
   <!-- NOTE(sen) Navigation bar -->
-  <!-- TODO(sen) Should I create the onclick events programmatically? -->
   <ul>
-    <li><a href="/" onclick="route('/')">Home</a></li>
-    <li><a href="/page1" onclick="route('/page1')">Page1</a></li>
-    <li><Link href="page1">Page1</Link></li>
+    <li>
+      <Link
+        href="/"
+        onclick="route('/')"
+        >Home</Link
+      >
+    </li>
+    <li>
+      <Link
+        href="/page1"
+        onclick="route('/page1')"
+        >Page1</Link
+      >
+    </li>
   </ul>
 
   <div id="page"></div>
@@ -47,5 +94,6 @@
   <script>
     // NOTE(sen) Initial setup (on load/refresh)
     setRouteContent(window.location.pathname)
+    login()
   </script>
 </body>
