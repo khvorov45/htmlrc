@@ -182,7 +182,7 @@ fn resolve_components(
                     input_dir.join(format!("{}.html", component_used.name.as_str()));
                 let input_contents =
                     std::fs::read_to_string(component_file_path.as_path()).unwrap();
-                resolve_components(input_contents.as_str(), input_dir, components)
+                resolve_components(input_contents.trim_end(), input_dir, components)
             };
             components.insert(component_used.name.clone(), component_contents);
         }
