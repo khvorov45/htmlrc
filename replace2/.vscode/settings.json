@@ -1,4 +1,13 @@
 {
   "rust-analyzer.checkOnSave.allTargets": false,
-  "cSpell.words": ["FILENO", "errno", "fstat", "mmap"]
+  "cSpell.words": [
+    "CREAT",
+    "ENOENT",
+    "FILENO",
+    "WRONLY",
+    "errno",
+    "fstat",
+    "mkdir",
+    "mmap"
+  ]
 }

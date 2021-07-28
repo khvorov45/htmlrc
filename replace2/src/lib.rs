@@ -73,8 +73,11 @@ impl String {
 const KILOBYTE: usize = 1024;
 const MEGABYTE: usize = KILOBYTE * 1024;
 
-pub fn run(input_dir: &str, input_file_name: &str) {
-    use platform::{allocate_and_clear, exit, read_file, write_stderr, write_stdout};
+pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
+    use platform::{
+        allocate_and_clear, create_dir_if_not_exists, exit, read_file, write_file, write_stderr,
+        write_stdout,
+    };
 
     let total_memory_size = 10 * MEGABYTE;
 
@@ -85,16 +88,25 @@ pub fn run(input_dir: &str, input_file_name: &str) {
             used: 0,
         };
         let input_file_path = concat_path(&mut memory, input_dir, input_file_name);
-        if let Ok(string) = read_file(&mut memory, &input_file_path) {
-            write_stdout(string.as_str());
+        if let Ok(input_string) = read_file(&mut memory, &input_file_path) {
+            let result = resolve_components(&input_string);
+            let output_dir_path = create_path(&mut memory, output_dir);
+            if create_dir_if_not_exists(&output_dir_path).is_ok() {
+                let output_file_path = concat_path(&mut memory, output_dir, input_file_name);
+                if write_file(&output_file_path, &result).is_ok() {
+                    write_stdout("Done\n");
+                } else {
+                    write_stderr("Failed to write to output file\n");
+                }
+            } else {
+                write_stderr("Failed to create output directory\n");
+            }
         } else {
             write_stderr("Failed to read input\n");
         }
     } else {
         write_stderr("Memory allocation failed\n");
     }
-
-    write_stdout("Done\n");
 
     exit();
 }
@@ -109,5 +121,24 @@ fn concat_path(memory: &mut Memory, one: &str, two: &str) -> String {
     String {
         ptr: path_base,
         size: path_size,
+    }
+}
+
+fn create_path(memory: &mut Memory, path: &str) -> String {
+    let used_before = memory.used;
+    let path_base = memory.push_str(path);
+    memory.push_char('\0'); // NOTE(sen) Make sure the path is null-terminated
+    let path_size = memory.used - used_before;
+    String {
+        ptr: path_base,
+        size: path_size,
+    }
+}
+
+fn resolve_components(string: &String) -> String {
+    // TODO(sen) Actually implement this
+    String {
+        ptr: string.ptr,
+        size: string.size,
     }
 }
