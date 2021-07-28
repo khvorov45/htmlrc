@@ -8,12 +8,20 @@ pub(crate) fn write_stdout(text: &str) {
 }
 
 pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
-    use libc::{__errno_location, close, open, write, O_WRONLY};
+    use libc::{
+        __errno_location, close, creat, open, write, O_WRONLY, S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP,
+        S_IWUSR,
+    };
 
-    let file_handle = unsafe { open(path.ptr.cast(), O_WRONLY) };
+    let mut file_handle = unsafe { open(path.ptr.cast(), O_WRONLY) };
 
     if file_handle == -1 {
-        // TODO(sen) Create the file with the right permissions
+        file_handle = unsafe {
+            creat(
+                path.ptr.cast(),
+                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH,
+            )
+        };
     }
 
     if file_handle >= 0 {

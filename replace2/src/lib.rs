@@ -19,16 +19,17 @@ impl Memory {
         self.used += size;
         result
     }
+    /// Null and non-ascii characters aren't allowed
     fn push_str(&mut self, string: &str) -> *mut u8 {
         debug_assert!({
-            let mut string_is_ascii = true;
+            let mut string_is_valid = true;
             for ch in string.chars() {
-                if !ch.is_ascii() {
-                    string_is_ascii = false;
+                if !ch.is_ascii() || ch == '\0' {
+                    string_is_valid = false;
                     break;
                 }
             }
-            string_is_ascii
+            string_is_valid
         });
         self.push_bytes(string.as_bytes())
     }
@@ -53,12 +54,20 @@ impl Memory {
     }
 }
 
+/// Always null-terminated for compatability
 struct String {
     ptr: *const u8,
     size: usize,
 }
 
 impl String {
+    fn new(ptr: *const u8, size: usize) -> String {
+        debug_assert!({
+            let last_char: char = unsafe { *ptr.add(size).cast() };
+            last_char == '\0'
+        });
+        String { ptr, size }
+    }
     fn as_str(&self) -> &str {
         unsafe {
             core::str::from_utf8_unchecked(
@@ -116,7 +125,7 @@ fn concat_path(memory: &mut Memory, one: &str, two: &str) -> String {
     let path_base = memory.push_str(one);
     memory.push_char(platform::PATH_SEP);
     memory.push_str(two);
-    memory.push_char('\0'); // NOTE(sen) Make sure the path is null-terminated
+    memory.push_char('\0');
     let path_size = memory.used - used_before;
     String {
         ptr: path_base,
@@ -127,18 +136,12 @@ fn concat_path(memory: &mut Memory, one: &str, two: &str) -> String {
 fn create_path(memory: &mut Memory, path: &str) -> String {
     let used_before = memory.used;
     let path_base = memory.push_str(path);
-    memory.push_char('\0'); // NOTE(sen) Make sure the path is null-terminated
+    memory.push_char('\0');
     let path_size = memory.used - used_before;
-    String {
-        ptr: path_base,
-        size: path_size,
-    }
+    String::new(path_base, path_size)
 }
 
 fn resolve_components(string: &String) -> String {
     // TODO(sen) Actually implement this
-    String {
-        ptr: string.ptr,
-        size: string.size,
-    }
+    String::new(string.ptr, string.size)
 }
