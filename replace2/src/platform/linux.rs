@@ -42,26 +42,30 @@ pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
 }
 
 pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
-    use libc::{__errno_location, mkdir, opendir, ENOENT, S_IROTH, S_IRWXG, S_IRWXU, S_IXOTH};
+    use libc::{
+        __errno_location, closedir, mkdir, opendir, ENOENT, S_IROTH, S_IRWXG, S_IRWXU, S_IXOTH,
+    };
 
     let open_result = unsafe { opendir(path.ptr.cast()) };
 
-    let mut result = Ok(());
     if open_result.is_null() {
         let errno = unsafe { *__errno_location() };
         if errno == ENOENT {
             let create_result =
                 unsafe { mkdir(path.ptr.cast(), S_IROTH | S_IRWXG | S_IRWXU | S_IXOTH) };
             if create_result == -1 {
-                write_stdout(path.as_str());
                 let _errno = unsafe { *__errno_location() };
-                result = Err(Error {});
+                Err(Error {})
+            } else {
+                Ok(())
             }
         } else {
-            result = Err(Error {});
+            Err(Error {})
         }
+    } else {
+        unsafe { closedir(open_result) };
+        Ok(())
     }
-    result
 }
 
 pub(crate) fn write_stderr(text: &str) {
