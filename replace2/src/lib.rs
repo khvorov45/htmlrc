@@ -21,7 +21,7 @@ impl Memory {
     }
 }
 
-/// Always null-terminated, the null-terminator is included in `size`
+/// If null-terminated, the terminator is included in `size`
 struct String {
     ptr: *const u8,
     size: usize,
@@ -158,7 +158,101 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     exit();
 }
 
+struct ComponentUsed {
+    first_part: String,
+    second_part: String,
+    name: String,
+    // TODO(sen) Implement params
+}
+
+struct ByteWindow2 {
+    current_index: i32,
+    last_byte_index: usize,
+    base_ptr: *const u8,
+    this: Byte,
+    next: Byte,
+}
+
+impl ByteWindow2 {
+    fn new(string: &String) -> ByteWindow2 {
+        debug_assert!(string.size >= 2);
+        debug_assert!(string.size <= core::i32::MAX as usize);
+        ByteWindow2 {
+            current_index: -1,
+            last_byte_index: string.size - 1,
+            base_ptr: string.ptr,
+            this: Byte::default(),
+            next: Byte {
+                ptr: string.ptr,
+                index: 0,
+                value: unsafe { *string.ptr },
+            },
+        }
+    }
+    fn advance(&mut self) -> bool {
+        if self.current_index < self.last_byte_index as i32 {
+            self.current_index += 1;
+            self.this = self.next.clone();
+            let next_index = (self.current_index + 1) as usize;
+            let next_ptr = unsafe { self.base_ptr.add(next_index) };
+            self.next = Byte {
+                ptr: next_ptr,
+                index: next_index,
+                value: unsafe { *next_ptr },
+            };
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Byte {
+    ptr: *const u8,
+    index: usize,
+    value: u8,
+}
+
+impl Default for Byte {
+    fn default() -> Self {
+        Byte {
+            ptr: core::ptr::null(),
+            index: 0,
+            value: b'\0',
+        }
+    }
+}
+
 fn resolve_components(string: &String) -> String {
-    // TODO(sen) Actually implement this
+    fn find_first_component(string: &String) -> Option<ComponentUsed> {
+        if string.size >= 2 {
+            let mut window = ByteWindow2::new(&string);
+            let mut component_start = None;
+            while window.advance() {
+                if window.this.value == b'<' {
+                    if window.next.value.is_ascii_uppercase() {
+                        component_start = Some((window.this.ptr, window.this.index));
+                        break;
+                    } else {
+                        // TODO(sen) Skip whitespaces
+                    }
+                }
+            }
+
+            // TODO(sen) Find the end of the component
+
+            // TODO(sen) Replace with found component
+            None
+        } else {
+            None
+        }
+    }
+
+    while let Some(component_used) = find_first_component(&string) {
+        // TODO(sen) Replace this component and change the string that goes into
+        // `find_first_component`
+    }
+
     String::new(string.ptr, string.size)
 }
