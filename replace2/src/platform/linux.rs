@@ -24,6 +24,12 @@ pub(crate) fn write_stderr(text: &str) {
     };
 }
 
+pub(crate) fn exit() {
+    unsafe {
+        libc::exit(0);
+    }
+}
+
 pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
     use libc::{
         __errno_location, close, creat, open, write, O_WRONLY, S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP,
@@ -82,12 +88,6 @@ pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
     } else {
         unsafe { closedir(open_result) };
         Ok(())
-    }
-}
-
-pub(crate) fn exit() {
-    unsafe {
-        libc::exit(0);
     }
 }
 
