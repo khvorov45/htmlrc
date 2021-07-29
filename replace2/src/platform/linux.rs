@@ -64,6 +64,36 @@ pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
     }
 }
 
+pub(crate) fn read_file(memory: &mut Memory, path: &String) -> Result<String> {
+    use libc::{__errno_location, close, fstat, open, read, stat};
+
+    let file_handle = unsafe { open(path.ptr.cast(), 0) };
+
+    if file_handle >= 0 {
+        let file_size = unsafe {
+            let mut file_info: stat = core::mem::MaybeUninit::zeroed().assume_init();
+            fstat(file_handle, &mut file_info);
+            file_info.st_size as usize
+        };
+        let dest = memory.push_size(file_size);
+
+        let read_result = unsafe { read(file_handle, dest.cast(), file_size) };
+        if read_result == -1 {
+            let _errno = unsafe { *__errno_location() };
+            Err(Error {})
+        } else {
+            unsafe { close(file_handle) };
+            Ok(String {
+                ptr: dest,
+                size: file_size,
+            })
+        }
+    } else {
+        let _errno = unsafe { *__errno_location() };
+        Err(Error {})
+    }
+}
+
 pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
     use libc::{
         __errno_location, closedir, mkdir, opendir, ENOENT, S_IROTH, S_IRWXG, S_IRWXU, S_IXOTH,
@@ -112,35 +142,5 @@ pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
         Err(Error {})
     } else {
         Ok(ptr.cast())
-    }
-}
-
-pub(crate) fn read_file(memory: &mut Memory, path: &String) -> Result<String> {
-    use libc::{__errno_location, close, fstat, open, read, stat};
-
-    let file_handle = unsafe { open(path.ptr.cast(), 0) };
-
-    if file_handle >= 0 {
-        let file_size = unsafe {
-            let mut file_info: stat = core::mem::MaybeUninit::zeroed().assume_init();
-            fstat(file_handle, &mut file_info);
-            file_info.st_size as usize
-        };
-        let dest = memory.push_size(file_size);
-
-        let read_result = unsafe { read(file_handle, dest.cast(), file_size) };
-        if read_result == -1 {
-            let _errno = unsafe { *__errno_location() };
-            Err(Error {})
-        } else {
-            unsafe { close(file_handle) };
-            Ok(String {
-                ptr: dest,
-                size: file_size,
-            })
-        }
-    } else {
-        let _errno = unsafe { *__errno_location() };
-        Err(Error {})
     }
 }
