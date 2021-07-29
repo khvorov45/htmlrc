@@ -132,12 +132,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
     let total_memory_size = 10 * MEGABYTE;
 
-    if let Ok(memory) = allocate_and_clear(total_memory_size) {
-        let mut memory = Memory {
-            size: total_memory_size,
-            base: memory,
-            used: 0,
-        };
+    if let Ok(mut memory) = allocate_and_clear(total_memory_size) {
         let input_file_path = String::from_scs(&mut memory, input_dir, PATH_SEP, input_file_name);
         if let Ok(input_string) = read_file(&mut memory, &input_file_path) {
             let result = resolve_components(&input_string);

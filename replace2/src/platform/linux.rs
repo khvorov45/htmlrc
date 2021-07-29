@@ -121,7 +121,7 @@ pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
     }
 }
 
-pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
+pub(crate) fn allocate_and_clear(total_size: usize) -> Result<Memory> {
     use libc::{
         __errno_location, mmap, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE,
     };
@@ -141,6 +141,10 @@ pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
         let _errno = unsafe { *__errno_location() };
         Err(Error {})
     } else {
-        Ok(ptr.cast())
+        Ok(Memory {
+            size: total_size,
+            base: ptr.cast(),
+            used: 0,
+        })
     }
 }
