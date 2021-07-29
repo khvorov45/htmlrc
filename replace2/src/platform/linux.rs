@@ -4,7 +4,24 @@ pub(crate) const PATH_SEP: char = '/';
 
 pub(crate) fn write_stdout(text: &str) {
     use libc::{write, STDOUT_FILENO};
-    unsafe { write(STDOUT_FILENO, text.as_ptr() as *const _, text.len()) };
+    unsafe {
+        write(
+            STDOUT_FILENO,
+            text.as_ptr() as *const _,
+            text.as_bytes().len(),
+        )
+    };
+}
+
+pub(crate) fn write_stderr(text: &str) {
+    use libc::{write, STDERR_FILENO};
+    unsafe {
+        write(
+            STDERR_FILENO,
+            text.as_ptr() as *const _,
+            text.as_bytes().len(),
+        )
+    };
 }
 
 pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
@@ -66,11 +83,6 @@ pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
         unsafe { closedir(open_result) };
         Ok(())
     }
-}
-
-pub(crate) fn write_stderr(text: &str) {
-    use libc::{write, STDERR_FILENO};
-    unsafe { write(STDERR_FILENO, text.as_ptr() as *const _, text.len()) };
 }
 
 pub(crate) fn exit() {
