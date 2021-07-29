@@ -95,7 +95,7 @@ impl String {
             size: total_size,
         }
     }
-    fn as_str(&self) -> &str {
+    fn _as_str(&self) -> &str {
         unsafe {
             core::str::from_utf8_unchecked(
                 core::ptr::slice_from_raw_parts(self.ptr, self.size)
