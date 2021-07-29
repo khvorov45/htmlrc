@@ -19,42 +19,9 @@ impl Memory {
         self.used += size;
         result
     }
-    /// Null and non-ascii characters aren't allowed
-    fn push_str(&mut self, string: &str) -> *mut u8 {
-        debug_assert!({
-            let mut string_is_valid = true;
-            for ch in string.chars() {
-                if !ch.is_ascii() || ch == '\0' {
-                    string_is_valid = false;
-                    break;
-                }
-            }
-            string_is_valid
-        });
-        self.push_bytes(string.as_bytes())
-    }
-    fn push_char(&mut self, ch: char) -> *mut u8 {
-        debug_assert!(ch.is_ascii());
-        let int: u32 = unsafe { core::mem::transmute(ch) };
-        let byte = int as u8;
-        let dest = self.push_size(1);
-        unsafe { *dest = byte };
-        dest
-    }
-    fn push_bytes(&mut self, bytes: &[u8]) -> *mut u8 {
-        let mut dest = self.push_size(bytes.len());
-        let result = dest;
-        for byte in bytes {
-            unsafe {
-                *dest = *byte;
-                dest = dest.add(1);
-            }
-        }
-        result
-    }
 }
 
-/// Always null-terminated for compatability
+/// Always null-terminated, the null-terminator is included in `size`
 struct String {
     ptr: *const u8,
     size: usize,
@@ -68,6 +35,66 @@ impl String {
         });
         String { ptr, size }
     }
+    fn from_s(memory: &mut Memory, source: &str) -> String {
+        debug_assert!(string_literal_is_valid(source));
+
+        let source_bytes = source.as_bytes();
+        let source_size = source_bytes.len();
+        let total_size = source_size + 1; // NOTE(sen) For the null terminator
+
+        let first_byte = memory.push_size(total_size);
+        let mut dest = first_byte;
+        for source_byte in source_bytes {
+            unsafe {
+                *dest = *source_byte;
+                dest = dest.add(1);
+            };
+        }
+        unsafe { *dest = b'\0' };
+
+        String {
+            ptr: first_byte,
+            size: total_size,
+        }
+    }
+    fn from_scs(memory: &mut Memory, source1: &str, ch: char, source2: &str) -> String {
+        debug_assert!(string_literal_is_valid(source1));
+        debug_assert!(string_literal_is_valid(source2));
+        debug_assert!(char_is_valid(ch));
+
+        let source1_bytes = source1.as_bytes();
+        let source1_size = source1_bytes.len();
+
+        let source2_bytes = source2.as_bytes();
+        let source2_size = source2_bytes.len();
+
+        let total_size = source1_size + source2_size + 1; // NOTE(sen) For the null terminator
+
+        let first_byte = memory.push_size(total_size);
+        let mut dest = first_byte;
+        for source_byte in source1_bytes {
+            unsafe {
+                *dest = *source_byte;
+                dest = dest.add(1);
+            };
+        }
+        unsafe {
+            *dest = ch as u8;
+            dest = dest.add(1);
+        };
+        for source_byte in source2_bytes {
+            unsafe {
+                *dest = *source_byte;
+                dest = dest.add(1);
+            };
+        }
+        unsafe { *dest = b'\0' };
+
+        String {
+            ptr: first_byte,
+            size: total_size,
+        }
+    }
     fn as_str(&self) -> &str {
         unsafe {
             core::str::from_utf8_unchecked(
@@ -79,13 +106,28 @@ impl String {
     }
 }
 
+fn string_literal_is_valid(literal: &str) -> bool {
+    let mut result = true;
+    for ch in literal.chars() {
+        if !char_is_valid(ch) {
+            result = false;
+            break;
+        }
+    }
+    result
+}
+
+fn char_is_valid(ch: char) -> bool {
+    ch.is_ascii() || ch == '\0'
+}
+
 const KILOBYTE: usize = 1024;
 const MEGABYTE: usize = KILOBYTE * 1024;
 
 pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     use platform::{
         allocate_and_clear, create_dir_if_not_exists, exit, read_file, write_file, write_stderr,
-        write_stdout,
+        write_stdout, PATH_SEP,
     };
 
     let total_memory_size = 10 * MEGABYTE;
@@ -96,12 +138,13 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             base: memory,
             used: 0,
         };
-        let input_file_path = concat_path(&mut memory, input_dir, input_file_name);
+        let input_file_path = String::from_scs(&mut memory, input_dir, PATH_SEP, input_file_name);
         if let Ok(input_string) = read_file(&mut memory, &input_file_path) {
             let result = resolve_components(&input_string);
-            let output_dir_path = create_path(&mut memory, output_dir);
+            let output_dir_path = String::from_s(&mut memory, output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
-                let output_file_path = concat_path(&mut memory, output_dir, input_file_name);
+                let output_file_path =
+                    String::from_scs(&mut memory, output_dir, PATH_SEP, input_file_name);
                 if write_file(&output_file_path, &result).is_ok() {
                     write_stdout("Done\n");
                 } else {
@@ -118,27 +161,6 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     }
 
     exit();
-}
-
-fn concat_path(memory: &mut Memory, one: &str, two: &str) -> String {
-    let used_before = memory.used;
-    let path_base = memory.push_str(one);
-    memory.push_char(platform::PATH_SEP);
-    memory.push_str(two);
-    memory.push_char('\0');
-    let path_size = memory.used - used_before;
-    String {
-        ptr: path_base,
-        size: path_size,
-    }
-}
-
-fn create_path(memory: &mut Memory, path: &str) -> String {
-    let used_before = memory.used;
-    let path_base = memory.push_str(path);
-    memory.push_char('\0');
-    let path_size = memory.used - used_before;
-    String::new(path_base, path_size)
 }
 
 fn resolve_components(string: &String) -> String {
