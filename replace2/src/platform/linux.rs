@@ -100,7 +100,7 @@ pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
 }
 
 pub(crate) fn read_file(memory: &mut Memory, path: &String) -> Result<String> {
-    use libc::{__errno_location, fstat, open, read, stat};
+    use libc::{__errno_location, close, fstat, open, read, stat};
 
     let file_handle = unsafe { open(path.ptr.cast(), 0) };
 
@@ -111,12 +111,18 @@ pub(crate) fn read_file(memory: &mut Memory, path: &String) -> Result<String> {
             file_info.st_size as usize
         };
         let dest = memory.push_size(file_size);
-        // TODO(sen) Check for errors and close file
-        unsafe { read(file_handle, dest.cast(), file_size) };
-        Ok(String {
-            ptr: dest,
-            size: file_size,
-        })
+
+        let read_result = unsafe { read(file_handle, dest.cast(), file_size) };
+        if read_result == -1 {
+            let _errno = unsafe { *__errno_location() };
+            Err(Error {})
+        } else {
+            unsafe { close(file_handle) };
+            Ok(String {
+                ptr: dest,
+                size: file_size,
+            })
+        }
     } else {
         let _errno = unsafe { *__errno_location() };
         Err(Error {})
