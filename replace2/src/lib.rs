@@ -166,7 +166,7 @@ struct ComponentUsed {
 }
 
 struct ByteWindow2 {
-    current_index: i32,
+    current_index: usize,
     last_byte_index: usize,
     base_ptr: *const u8,
     this: Byte,
@@ -176,23 +176,28 @@ struct ByteWindow2 {
 impl ByteWindow2 {
     fn new(string: &String) -> ByteWindow2 {
         debug_assert!(string.size >= 2);
-        debug_assert!(string.size <= core::i32::MAX as usize);
+        let second_ptr = unsafe { string.ptr.add(1) };
         ByteWindow2 {
-            current_index: -1,
+            current_index: 0,
             last_byte_index: string.size - 1,
             base_ptr: string.ptr,
-            this: Byte::default(),
-            next: Byte {
+            this: Byte {
                 ptr: string.ptr,
                 index: 0,
                 value: unsafe { *string.ptr },
             },
+            next: Byte {
+                ptr: second_ptr,
+                index: 1,
+                value: unsafe { *second_ptr },
+            },
         }
     }
+
     fn advance(&mut self) -> bool {
-        if self.current_index < self.last_byte_index as i32 {
+        if self.current_index < self.last_byte_index {
             self.current_index += 1;
-            self.this = self.next.clone();
+            self.this = self.next;
             let next_index = (self.current_index + 1) as usize;
             let next_ptr = unsafe { self.base_ptr.add(next_index) };
             self.next = Byte {
@@ -207,21 +212,11 @@ impl ByteWindow2 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Byte {
     ptr: *const u8,
     index: usize,
     value: u8,
-}
-
-impl Default for Byte {
-    fn default() -> Self {
-        Byte {
-            ptr: core::ptr::null(),
-            index: 0,
-            value: b'\0',
-        }
-    }
 }
 
 fn resolve_components(string: &String) -> String {
@@ -229,7 +224,7 @@ fn resolve_components(string: &String) -> String {
         if string.size >= 2 {
             let mut window = ByteWindow2::new(&string);
             let mut component_start = None;
-            while window.advance() {
+            loop {
                 if window.this.value == b'<' {
                     if window.next.value.is_ascii_uppercase() {
                         component_start = Some((window.this.ptr, window.this.index));
@@ -237,6 +232,9 @@ fn resolve_components(string: &String) -> String {
                     } else {
                         // TODO(sen) Skip whitespaces
                     }
+                }
+                if !window.advance() {
+                    break;
                 }
             }
 
