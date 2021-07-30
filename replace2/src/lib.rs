@@ -236,7 +236,6 @@ fn resolve_components(string: &String) -> String {
                 loop {
                     if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
                         result = Some((window.this.ptr, window.this.index));
-                        // TODO Skip
                         window.advance();
                         window.advance();
                         break;
@@ -262,13 +261,11 @@ fn resolve_components(string: &String) -> String {
                     loop {
                         if window.this.value == b'/' && window.next.value == b'>' {
                             result = Some((window.next.index, false));
-                            // TODO Skip
                             window.advance();
                             window.advance();
                             break;
                         } else if window.this.value == b'>' {
                             result = Some((window.this.index, true));
-                            // TODO Skip
                             window.advance();
                             break;
                         }
