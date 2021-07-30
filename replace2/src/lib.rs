@@ -8,6 +8,7 @@ type Result<T> = core::result::Result<T, Error>;
 
 struct Memory {
     permanent: MemoryArena,
+    // TODO(sen) Allow transient arena to be used for temporary memory more than once
     transient: MemoryArena,
 }
 
@@ -160,6 +161,14 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     let total_memory_size = 10 * MEGABYTE;
 
     if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
+        // TODO(sen) Come up with a more robust memory model. The output is an
+        // HTML file that's meant to be transferred quickly over the network, so
+        // ~1 MB in size. If the output is 1MB then the sum of all input can't
+        // be more than 1MB. Allocating 5MB for the permanent store (holds final
+        // output string and all the input strings) and 5MB for the transient
+        // store (holds strings that are in the process of being built up) seems
+        // sufficient for now. The memory for the transient store sets the
+        // `resolve_components` recursion limit.
         let mut memory = {
             let permanent = MemoryArena {
                 size: total_memory_size / 2,
@@ -181,7 +190,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             String::from_scs(&mut memory.permanent, input_dir, PATH_SEP, input_file_name);
 
         if let Ok(input_string) = read_file(&mut memory.permanent, &input_file_path) {
-            let result = resolve_components(&mut memory.permanent, &input_string);
+            let result = resolve_components(&mut memory, &input_string);
             let output_dir_path = String::from_s(&mut memory.permanent, output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 let output_file_path =
@@ -285,7 +294,7 @@ struct Byte {
     value: u8,
 }
 
-fn resolve_components(memory: &mut MemoryArena, string: &String) -> String {
+fn resolve_components(memory: &mut Memory, string: &String) -> String {
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
         if let Some(mut window) = ByteWindow2::new(string) {
             let component_start = {
@@ -379,12 +388,9 @@ fn resolve_components(memory: &mut MemoryArena, string: &String) -> String {
     }
 
     let mut output_string = {
-        // TODO(sen) Better way to figure out how much memory the output needs.
-        // Probably allocate a lot of space in the temporary region and then
-        // copy to permanent once the output string has been generated
         let output_capacity = MEGABYTE;
         String {
-            ptr: memory.push_size(output_capacity),
+            ptr: memory.transient.push_size(output_capacity),
             size: 0,
             capacity: output_capacity,
         }
@@ -415,7 +421,26 @@ fn resolve_components(memory: &mut MemoryArena, string: &String) -> String {
         }
     }
 
-    output_string
+    let output_string_permanent = {
+        let size = output_string.size;
+        let base = memory.permanent.push_size(size);
+        let mut dest = base;
+        for index in 0..size {
+            unsafe {
+                *dest = *output_string.ptr.add(index);
+                dest = dest.add(1);
+            }
+        }
+        String {
+            ptr: base,
+            size,
+            capacity: size,
+        }
+    };
+
+    memory.transient.used = 0;
+
+    output_string_permanent
 }
 
 fn debug_line(string: &String) {
