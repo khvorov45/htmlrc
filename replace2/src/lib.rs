@@ -170,7 +170,6 @@ struct ComponentUsed {
 }
 
 struct ByteWindow2 {
-    current_index: usize,
     last_byte_index: usize,
     base_ptr: *const u8,
     this: Byte,
@@ -182,7 +181,6 @@ impl ByteWindow2 {
         if string.size >= 2 {
             let second_ptr = unsafe { string.ptr.add(1) };
             Some(ByteWindow2 {
-                current_index: 0,
                 last_byte_index: string.size - 1,
                 base_ptr: string.ptr,
                 this: Byte {
@@ -201,19 +199,22 @@ impl ByteWindow2 {
         }
     }
 
+    /// Will skip whitespaces
     fn advance(&mut self) -> bool {
-        // TODO(sen) Skip whitespaces
-        if self.current_index < self.last_byte_index {
-            self.current_index += 1;
-            self.this = self.next;
-            let next_index = (self.current_index + 1) as usize;
-            let next_ptr = unsafe { self.base_ptr.add(next_index) };
-            self.next = Byte {
-                ptr: next_ptr,
-                index: next_index,
-                value: unsafe { *next_ptr },
-            };
-            true
+        if self.next.index <= self.last_byte_index {
+            // NOTE(sen) Find the next non-whitespace character
+            let mut non_whitespace_found = false;
+            for index in (self.next.index + 1)..=self.last_byte_index {
+                let ptr = unsafe { self.base_ptr.add(index) };
+                let value = unsafe { *ptr };
+                if !value.is_ascii_whitespace() {
+                    self.this = self.next;
+                    self.next = Byte { ptr, index, value };
+                    non_whitespace_found = true;
+                    break;
+                }
+            }
+            non_whitespace_found
         } else {
             false
         }
@@ -233,16 +234,12 @@ fn resolve_components(string: &String) -> String {
             let component_start = {
                 let mut result = None;
                 loop {
-                    if window.this.value == b'<' {
-                        if window.next.value.is_ascii_uppercase() {
-                            result = Some((window.this.ptr, window.this.index));
-                            // TODO Skip
-                            window.advance();
-                            window.advance();
-                            break;
-                        } else {
-                            // TODO(sen) Skip whitespaces
-                        }
+                    if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
+                        result = Some((window.this.ptr, window.this.index));
+                        // TODO Skip
+                        window.advance();
+                        window.advance();
+                        break;
                     }
                     if !window.advance() {
                         break;
@@ -319,6 +316,7 @@ fn resolve_components(string: &String) -> String {
         // TODO(sen) Replace this component and change the string that goes into
         // `find_first_component`
         write_stdout(component_used.first_part._as_str());
+        write_stdout("\n");
 
         if let Some(second_part) = component_used.second_part {
             // TODO(sen) Handle two-parters
