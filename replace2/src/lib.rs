@@ -263,10 +263,23 @@ fn resolve_components(string: &String) -> String {
             };
 
             if let Some((start_ptr, start_index)) = component_start {
-                // TODO(sen) Parse name
-                let name_string = String {
-                    ptr: core::ptr::null(),
-                    size: 0,
+                let component_name = {
+                    let name_start_ptr = unsafe { start_ptr.add(1) };
+                    let mut name_length = 1;
+                    loop {
+                        if window.this.value.is_ascii_alphanumeric() {
+                            name_length += 1;
+                        } else {
+                            break;
+                        }
+                        if !window.advance_one() {
+                            break;
+                        }
+                    }
+                    String {
+                        ptr: name_start_ptr,
+                        size: name_length,
+                    }
                 };
 
                 // TODO(sen) Parse arguments
@@ -304,7 +317,7 @@ fn resolve_components(string: &String) -> String {
                         Some(ComponentUsed {
                             first_part: component_string,
                             second_part: None,
-                            name: name_string,
+                            name: component_name,
                         })
                     }
                 } else {
@@ -328,6 +341,10 @@ fn resolve_components(string: &String) -> String {
         // TODO(sen) Replace this component and change the string that goes into
         // `find_first_component`
         write_stdout(component_used.first_part._as_str());
+        write_stdout("#");
+        write_stdout("\n");
+        write_stdout(component_used.name._as_str());
+        write_stdout("#");
         write_stdout("\n");
 
         if let Some(second_part) = component_used.second_part {
