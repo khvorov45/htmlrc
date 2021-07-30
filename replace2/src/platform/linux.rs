@@ -1,4 +1,4 @@
-use crate::{Error, Memory, Result, String};
+use crate::{Error, MemoryArena, Result, String};
 
 pub(crate) const PATH_SEP: char = '/';
 
@@ -64,7 +64,7 @@ pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
     }
 }
 
-pub(crate) fn read_file(memory: &mut Memory, path: &String) -> Result<String> {
+pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<String> {
     use libc::{__errno_location, close, fstat, open, read, stat};
 
     let file_handle = unsafe { open(path.ptr.cast(), 0) };
@@ -122,7 +122,7 @@ pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
     }
 }
 
-pub(crate) fn allocate_and_clear(total_size: usize) -> Result<Memory> {
+pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
     use libc::{
         __errno_location, mmap, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE,
     };
@@ -142,10 +142,6 @@ pub(crate) fn allocate_and_clear(total_size: usize) -> Result<Memory> {
         let _errno = unsafe { *__errno_location() };
         Err(Error {})
     } else {
-        Ok(Memory {
-            size: total_size,
-            base: ptr.cast(),
-            used: 0,
-        })
+        Ok(ptr.cast())
     }
 }

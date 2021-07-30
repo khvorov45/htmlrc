@@ -7,13 +7,17 @@ struct Error {}
 type Result<T> = core::result::Result<T, Error>;
 
 struct Memory {
-    // TODO(sen) Implement permanent and transient stores
+    permanent: MemoryArena,
+    transient: MemoryArena,
+}
+
+struct MemoryArena {
     size: usize,
     base: *mut u8,
     used: usize,
 }
 
-impl Memory {
+impl MemoryArena {
     fn push_size(&mut self, size: usize) -> *mut u8 {
         debug_assert!(self.size - self.used >= size);
         let result = unsafe { self.base.add(self.used) };
@@ -31,7 +35,7 @@ struct String {
 }
 
 impl String {
-    fn from_s(memory: &mut Memory, source: &str) -> String {
+    fn from_s(memory: &mut MemoryArena, source: &str) -> String {
         debug_assert!(string_literal_is_valid(source));
 
         let source_bytes = source.as_bytes();
@@ -55,7 +59,7 @@ impl String {
         }
     }
 
-    fn from_scs(memory: &mut Memory, source1: &str, ch: char, source2: &str) -> String {
+    fn from_scs(memory: &mut MemoryArena, source1: &str, ch: char, source2: &str) -> String {
         debug_assert!(string_literal_is_valid(source1));
         debug_assert!(string_literal_is_valid(source2));
         debug_assert!(char_is_valid(ch));
@@ -155,14 +159,33 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
     let total_memory_size = 10 * MEGABYTE;
 
-    if let Ok(mut memory) = allocate_and_clear(total_memory_size) {
-        let input_file_path = String::from_scs(&mut memory, input_dir, PATH_SEP, input_file_name);
-        if let Ok(input_string) = read_file(&mut memory, &input_file_path) {
-            let result = resolve_components(&mut memory, &input_string);
-            let output_dir_path = String::from_s(&mut memory, output_dir);
+    if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
+        let mut memory = {
+            let permanent = MemoryArena {
+                size: total_memory_size / 2,
+                base: memory_base_ptr,
+                used: 0,
+            };
+            let transient = MemoryArena {
+                size: total_memory_size - permanent.size,
+                base: unsafe { permanent.base.add(permanent.size) },
+                used: 0,
+            };
+            Memory {
+                permanent,
+                transient,
+            }
+        };
+
+        let input_file_path =
+            String::from_scs(&mut memory.permanent, input_dir, PATH_SEP, input_file_name);
+
+        if let Ok(input_string) = read_file(&mut memory.permanent, &input_file_path) {
+            let result = resolve_components(&mut memory.permanent, &input_string);
+            let output_dir_path = String::from_s(&mut memory.permanent, output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 let output_file_path =
-                    String::from_scs(&mut memory, output_dir, PATH_SEP, input_file_name);
+                    String::from_scs(&mut memory.permanent, output_dir, PATH_SEP, input_file_name);
                 if write_file(&output_file_path, &result).is_ok() {
                     write_stdout("Done\n");
                 } else {
@@ -262,7 +285,7 @@ struct Byte {
     value: u8,
 }
 
-fn resolve_components(memory: &mut Memory, string: &String) -> String {
+fn resolve_components(memory: &mut MemoryArena, string: &String) -> String {
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
         if let Some(mut window) = ByteWindow2::new(string) {
             let component_start = {
