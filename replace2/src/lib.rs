@@ -7,6 +7,7 @@ struct Error {}
 type Result<T> = core::result::Result<T, Error>;
 
 struct Memory {
+    // TODO(sen) Implement permanent and transient stores
     size: usize,
     base: *mut u8,
     used: usize,
@@ -355,7 +356,9 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
     }
 
     let mut output_string = {
-        // TODO(sen) Better way to figure out how much memory the output needs
+        // TODO(sen) Better way to figure out how much memory the output needs.
+        // Probably allocate a lot of space in the temporary region and then
+        // copy to permanent once the output string has been generated
         let output_capacity = MEGABYTE;
         String {
             ptr: memory.push_size(output_capacity),
