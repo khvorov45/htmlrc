@@ -22,19 +22,13 @@ impl Memory {
 }
 
 /// If null-terminated, the terminator is included in `size`
+#[derive(Clone, Copy)]
 struct String {
     ptr: *const u8,
     size: usize,
 }
 
 impl String {
-    fn new(ptr: *const u8, size: usize) -> String {
-        debug_assert!({
-            let last_char: char = unsafe { *ptr.add(size).cast() };
-            last_char == '\0'
-        });
-        String { ptr, size }
-    }
     fn from_s(memory: &mut Memory, source: &str) -> String {
         debug_assert!(string_literal_is_valid(source));
 
@@ -57,6 +51,7 @@ impl String {
             size: total_size,
         }
     }
+
     fn from_scs(memory: &mut Memory, source1: &str, ch: char, source2: &str) -> String {
         debug_assert!(string_literal_is_valid(source1));
         debug_assert!(string_literal_is_valid(source2));
@@ -95,6 +90,7 @@ impl String {
             size: total_size,
         }
     }
+
     fn _as_str(&self) -> &str {
         unsafe {
             core::str::from_utf8_unchecked(
@@ -103,6 +99,14 @@ impl String {
                     .unwrap(),
             )
         }
+    }
+
+    fn set_ptr(&mut self, new_ptr: *const u8) {
+        let ptr_distance = new_ptr as usize - self.ptr as usize;
+        debug_assert!(ptr_distance < self.size);
+        let new_size = self.size - ptr_distance;
+        self.size = new_size;
+        self.ptr = new_ptr;
     }
 }
 
@@ -160,7 +164,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
 struct ComponentUsed {
     first_part: String,
-    second_part: String,
+    second_part: Option<String>,
     name: String,
     // TODO(sen) Implement params
 }
@@ -174,27 +178,31 @@ struct ByteWindow2 {
 }
 
 impl ByteWindow2 {
-    fn new(string: &String) -> ByteWindow2 {
-        debug_assert!(string.size >= 2);
-        let second_ptr = unsafe { string.ptr.add(1) };
-        ByteWindow2 {
-            current_index: 0,
-            last_byte_index: string.size - 1,
-            base_ptr: string.ptr,
-            this: Byte {
-                ptr: string.ptr,
-                index: 0,
-                value: unsafe { *string.ptr },
-            },
-            next: Byte {
-                ptr: second_ptr,
-                index: 1,
-                value: unsafe { *second_ptr },
-            },
+    fn new(string: &String) -> Option<ByteWindow2> {
+        if string.size >= 2 {
+            let second_ptr = unsafe { string.ptr.add(1) };
+            Some(ByteWindow2 {
+                current_index: 0,
+                last_byte_index: string.size - 1,
+                base_ptr: string.ptr,
+                this: Byte {
+                    ptr: string.ptr,
+                    index: 0,
+                    value: unsafe { *string.ptr },
+                },
+                next: Byte {
+                    ptr: second_ptr,
+                    index: 1,
+                    value: unsafe { *second_ptr },
+                },
+            })
+        } else {
+            None
         }
     }
 
     fn advance(&mut self) -> bool {
+        // TODO(sen) Skip whitespaces
         if self.current_index < self.last_byte_index {
             self.current_index += 1;
             self.this = self.next;
@@ -221,36 +229,112 @@ struct Byte {
 
 fn resolve_components(string: &String) -> String {
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
-        if string.size >= 2 {
-            let mut window = ByteWindow2::new(&string);
-            let mut component_start = None;
-            loop {
-                if window.this.value == b'<' {
-                    if window.next.value.is_ascii_uppercase() {
-                        component_start = Some((window.this.ptr, window.this.index));
+        if let Some(mut window) = ByteWindow2::new(string) {
+            let component_start = {
+                let mut result = None;
+                loop {
+                    if window.this.value == b'<' {
+                        if window.next.value.is_ascii_uppercase() {
+                            result = Some((window.this.ptr, window.this.index));
+                            // TODO Skip
+                            window.advance();
+                            window.advance();
+                            break;
+                        } else {
+                            // TODO(sen) Skip whitespaces
+                        }
+                    }
+                    if !window.advance() {
                         break;
-                    } else {
-                        // TODO(sen) Skip whitespaces
                     }
                 }
-                if !window.advance() {
-                    break;
+                result
+            };
+
+            if let Some((start_ptr, start_index)) = component_start {
+                // TODO(sen) Parse name
+                let name_string = String {
+                    ptr: core::ptr::null(),
+                    size: 0,
+                };
+
+                // TODO(sen) Parse arguments
+
+                let component_end = {
+                    let mut result = None;
+                    loop {
+                        if window.this.value == b'/' && window.next.value == b'>' {
+                            result = Some((window.next.index, false));
+                            // TODO Skip
+                            window.advance();
+                            window.advance();
+                            break;
+                        } else if window.this.value == b'>' {
+                            result = Some((window.this.index, true));
+                            // TODO Skip
+                            window.advance();
+                            break;
+                        }
+                        if !window.advance() {
+                            break;
+                        }
+                    }
+                    result
+                };
+
+                if let Some((end_index, two_part)) = component_end {
+                    if two_part {
+                        // TODO(sen) Handle two-parters
+                        None
+                    } else {
+                        let component_size = end_index - start_index + 1;
+                        let component_string = String {
+                            ptr: start_ptr,
+                            size: component_size,
+                        };
+                        Some(ComponentUsed {
+                            first_part: component_string,
+                            second_part: None,
+                            name: name_string,
+                        })
+                    }
+                } else {
+                    // TODO(sen) This should be an error - found start but not end
+                    None
                 }
+            } else {
+                // NOTE(sen) Did not find start
+                None
             }
-
-            // TODO(sen) Find the end of the component
-
-            // TODO(sen) Replace with found component
-            None
         } else {
+            // NOTE(sen) Couldn't create window
             None
         }
     }
 
-    while let Some(component_used) = find_first_component(&string) {
+    use platform::write_stdout;
+
+    let mut string_to_parse = *string;
+    while let Some(component_used) = find_first_component(&string_to_parse) {
         // TODO(sen) Replace this component and change the string that goes into
         // `find_first_component`
+        write_stdout(component_used.first_part._as_str());
+
+        if let Some(second_part) = component_used.second_part {
+            // TODO(sen) Handle two-parters
+        } else {
+            string_to_parse.set_ptr(unsafe {
+                component_used
+                    .first_part
+                    .ptr
+                    .add(component_used.first_part.size)
+            });
+        }
     }
 
-    String::new(string.ptr, string.size)
+    // TODO(sen) Replace with the actual outcome string
+    String {
+        ptr: string.ptr,
+        size: string.size,
+    }
 }
