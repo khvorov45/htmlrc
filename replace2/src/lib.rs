@@ -199,8 +199,23 @@ impl ByteWindow2 {
         }
     }
 
-    /// Will skip whitespaces
-    fn advance(&mut self) -> bool {
+    fn advance_one(&mut self) -> bool {
+        if self.next.index < self.last_byte_index {
+            self.this = self.next;
+            let next_index = (self.next.index + 1) as usize;
+            let next_ptr = unsafe { self.base_ptr.add(next_index) };
+            self.next = Byte {
+                ptr: next_ptr,
+                index: next_index,
+                value: unsafe { *next_ptr },
+            };
+            true
+        } else {
+            false
+        }
+    }
+
+    fn advance_past_whitespace(&mut self) -> bool {
         if self.next.index <= self.last_byte_index {
             // NOTE(sen) Find the next non-whitespace character
             let mut non_whitespace_found = false;
@@ -236,11 +251,11 @@ fn resolve_components(string: &String) -> String {
                 loop {
                     if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
                         result = Some((window.this.ptr, window.this.index));
-                        window.advance();
-                        window.advance();
+                        window.advance_one();
+                        window.advance_one();
                         break;
                     }
-                    if !window.advance() {
+                    if !window.advance_past_whitespace() {
                         break;
                     }
                 }
@@ -261,15 +276,15 @@ fn resolve_components(string: &String) -> String {
                     loop {
                         if window.this.value == b'/' && window.next.value == b'>' {
                             result = Some((window.next.index, false));
-                            window.advance();
-                            window.advance();
+                            window.advance_one();
+                            window.advance_one();
                             break;
                         } else if window.this.value == b'>' {
                             result = Some((window.this.index, true));
-                            window.advance();
+                            window.advance_one();
                             break;
                         }
-                        if !window.advance() {
+                        if !window.advance_past_whitespace() {
                             break;
                         }
                     }
