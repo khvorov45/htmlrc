@@ -24,8 +24,9 @@ impl Memory {
 /// If null-terminated, the terminator is included in `size`
 #[derive(Clone, Copy)]
 struct String {
-    ptr: *const u8,
+    ptr: *mut u8,
     size: usize,
+    capacity: usize,
 }
 
 impl String {
@@ -49,6 +50,7 @@ impl String {
         String {
             ptr: first_byte,
             size: total_size,
+            capacity: total_size,
         }
     }
 
@@ -88,6 +90,7 @@ impl String {
         String {
             ptr: first_byte,
             size: total_size,
+            capacity: total_size,
         }
     }
 
@@ -101,12 +104,27 @@ impl String {
         }
     }
 
-    fn set_ptr(&mut self, new_ptr: *const u8) {
+    fn set_ptr(&mut self, new_ptr: *mut u8) {
         let ptr_distance = new_ptr as usize - self.ptr as usize;
         debug_assert!(ptr_distance < self.size);
         let new_size = self.size - ptr_distance;
         self.size = new_size;
         self.ptr = new_ptr;
+    }
+
+    /// Does not include `two`
+    fn append_between(&mut self, one: *const u8, two: *const u8) {
+        let ptr_distance = two as usize - one as usize;
+        debug_assert!(ptr_distance < self.capacity - self.size);
+        let mut dest = unsafe { self.ptr.add(self.size) };
+        for index in 0..ptr_distance {
+            unsafe {
+                let source = one.add(index);
+                *dest = *source;
+                dest = dest.add(1);
+            };
+        }
+        self.size += ptr_distance;
     }
 }
 
@@ -139,7 +157,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     if let Ok(mut memory) = allocate_and_clear(total_memory_size) {
         let input_file_path = String::from_scs(&mut memory, input_dir, PATH_SEP, input_file_name);
         if let Ok(input_string) = read_file(&mut memory, &input_file_path) {
-            let result = resolve_components(&input_string);
+            let result = resolve_components(&mut memory, &input_string);
             let output_dir_path = String::from_s(&mut memory, output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 let output_file_path =
@@ -171,7 +189,7 @@ struct ComponentUsed {
 
 struct ByteWindow2 {
     last_byte_index: usize,
-    base_ptr: *const u8,
+    base_ptr: *mut u8,
     this: Byte,
     next: Byte,
 }
@@ -238,12 +256,12 @@ impl ByteWindow2 {
 
 #[derive(Clone, Copy)]
 struct Byte {
-    ptr: *const u8,
+    ptr: *mut u8,
     index: usize,
     value: u8,
 }
 
-fn resolve_components(string: &String) -> String {
+fn resolve_components(memory: &mut Memory, string: &String) -> String {
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
         if let Some(mut window) = ByteWindow2::new(string) {
             let component_start = {
@@ -279,6 +297,7 @@ fn resolve_components(string: &String) -> String {
                     String {
                         ptr: name_start_ptr,
                         size: name_length,
+                        capacity: name_length,
                     }
                 };
 
@@ -313,6 +332,7 @@ fn resolve_components(string: &String) -> String {
                         let component_string = String {
                             ptr: start_ptr,
                             size: component_size,
+                            capacity: component_size,
                         };
                         Some(ComponentUsed {
                             first_part: component_string,
@@ -334,22 +354,32 @@ fn resolve_components(string: &String) -> String {
         }
     }
 
-    use platform::write_stdout;
+    let mut output_string = {
+        // TODO(sen) Better way to figure out how much memory the output needs
+        let output_capacity = MEGABYTE;
+        String {
+            ptr: memory.push_size(output_capacity),
+            size: 0,
+            capacity: output_capacity,
+        }
+    };
 
     let mut string_to_parse = *string;
     while let Some(component_used) = find_first_component(&string_to_parse) {
-        // TODO(sen) Replace this component and change the string that goes into
-        // `find_first_component`
-        write_stdout(component_used.first_part._as_str());
-        write_stdout("#");
-        write_stdout("\n");
-        write_stdout(component_used.name._as_str());
-        write_stdout("#");
-        write_stdout("\n");
+        // TODO(sen) Read in component contents and store them somewhere (don't read if found)
+
+        debug_line(&component_used.first_part);
+        debug_line(&component_used.name);
+
+        output_string.append_between(string_to_parse.ptr, component_used.first_part.ptr);
+
+        debug_line(&output_string);
 
         if let Some(second_part) = component_used.second_part {
             // TODO(sen) Handle two-parters
         } else {
+            // TODO(sen) Replace the component with its contents
+
             string_to_parse.set_ptr(unsafe {
                 component_used
                     .first_part
@@ -359,9 +389,12 @@ fn resolve_components(string: &String) -> String {
         }
     }
 
-    // TODO(sen) Replace with the actual outcome string
-    String {
-        ptr: string.ptr,
-        size: string.size,
-    }
+    output_string
+}
+
+fn debug_line(string: &String) {
+    use platform::write_stdout;
+    write_stdout(string._as_str());
+    write_stdout("#");
+    write_stdout("\n");
 }

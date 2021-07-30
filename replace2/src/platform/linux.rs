@@ -86,6 +86,7 @@ pub(crate) fn read_file(memory: &mut Memory, path: &String) -> Result<String> {
             Ok(String {
                 ptr: dest,
                 size: file_size,
+                capacity: file_size,
             })
         }
     } else {
