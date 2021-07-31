@@ -8,8 +8,7 @@ type Result<T> = core::result::Result<T, Error>;
 
 struct Memory {
     permanent: MemoryArena,
-    // TODO(sen) Allow transient arena to be used for temporary memory more than once
-    transient: MemoryArena,
+    transient: TransientArena,
 }
 
 struct MemoryArena {
@@ -27,12 +26,52 @@ impl MemoryArena {
     }
 }
 
+struct TransientArena {
+    arena: MemoryArena,
+    used_count: u32,
+}
+
+impl TransientArena {
+    fn begin_temporary(&mut self) -> TemporaryMemory {
+        self.used_count += 1;
+        TemporaryMemory {
+            arena: &mut self.arena,
+            used_before: self.arena.used,
+        }
+    }
+    fn end_temporary(&mut self, temporary_memory: TemporaryMemory) {
+        debug_assert!(self.used_count >= 1);
+        self.used_count -= 1;
+        unsafe { (*temporary_memory.arena).used = temporary_memory.used_before };
+    }
+}
+
+struct TemporaryMemory {
+    arena: *mut MemoryArena,
+    used_before: usize,
+}
+
+impl TemporaryMemory {
+    /// Does not include `two`
+    fn copy_between(&mut self, one: *const u8, two: *const u8) {
+        let ptr_distance = two as usize - one as usize;
+        let arena = unsafe { &mut *self.arena };
+        let mut dest = arena.push_size(ptr_distance);
+        for index in 0..ptr_distance {
+            unsafe {
+                let source = one.add(index);
+                *dest = *source;
+                dest = dest.add(1);
+            };
+        }
+    }
+}
+
 /// If null-terminated, the terminator is included in `size`
 #[derive(Clone, Copy)]
 struct String {
     ptr: *mut u8,
     size: usize,
-    capacity: usize,
 }
 
 impl String {
@@ -56,7 +95,6 @@ impl String {
         String {
             ptr: first_byte,
             size: total_size,
-            capacity: total_size,
         }
     }
 
@@ -96,7 +134,6 @@ impl String {
         String {
             ptr: first_byte,
             size: total_size,
-            capacity: total_size,
         }
     }
 
@@ -116,21 +153,6 @@ impl String {
         let new_size = self.size - ptr_distance;
         self.size = new_size;
         self.ptr = new_ptr;
-    }
-
-    /// Does not include `two`
-    fn append_between(&mut self, one: *const u8, two: *const u8) {
-        let ptr_distance = two as usize - one as usize;
-        debug_assert!(ptr_distance < self.capacity - self.size);
-        let mut dest = unsafe { self.ptr.add(self.size) };
-        for index in 0..ptr_distance {
-            unsafe {
-                let source = one.add(index);
-                *dest = *source;
-                dest = dest.add(1);
-            };
-        }
-        self.size += ptr_distance;
     }
 }
 
@@ -175,10 +197,14 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 base: memory_base_ptr,
                 used: 0,
             };
-            let transient = MemoryArena {
+            let transient_arena = MemoryArena {
                 size: total_memory_size - permanent.size,
                 base: unsafe { permanent.base.add(permanent.size) },
                 used: 0,
+            };
+            let transient = TransientArena {
+                arena: transient_arena,
+                used_count: 0,
             };
             Memory {
                 permanent,
@@ -191,6 +217,8 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
         if let Ok(input_string) = read_file(&mut memory.permanent, &input_file_path) {
             let result = resolve_components(&mut memory, &input_string);
+            debug_assert!(memory.transient.used_count == 0);
+
             let output_dir_path = String::from_s(&mut memory.permanent, output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 let output_file_path =
@@ -330,7 +358,6 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
                     String {
                         ptr: name_start_ptr,
                         size: name_length,
-                        capacity: name_length,
                     }
                 };
 
@@ -365,7 +392,6 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
                         let component_string = String {
                             ptr: start_ptr,
                             size: component_size,
-                            capacity: component_size,
                         };
                         Some(ComponentUsed {
                             first_part: component_string,
@@ -387,14 +413,7 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
         }
     }
 
-    let mut output_string = {
-        let output_capacity = MEGABYTE;
-        String {
-            ptr: memory.transient.push_size(output_capacity),
-            size: 0,
-            capacity: output_capacity,
-        }
-    };
+    let mut output_memory = memory.transient.begin_temporary();
 
     let mut string_to_parse = *string;
     while let Some(component_used) = find_first_component(&string_to_parse) {
@@ -403,9 +422,7 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
         debug_line(&component_used.first_part);
         debug_line(&component_used.name);
 
-        output_string.append_between(string_to_parse.ptr, component_used.first_part.ptr);
-
-        debug_line(&output_string);
+        output_memory.copy_between(string_to_parse.ptr, component_used.first_part.ptr);
 
         if let Some(second_part) = component_used.second_part {
             // TODO(sen) Handle two-parters
@@ -422,23 +439,22 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
     }
 
     let output_string_permanent = {
-        let size = output_string.size;
+        let output_arena = unsafe { &*output_memory.arena };
+        let size = output_arena.used - output_memory.used_before;
         let base = memory.permanent.push_size(size);
         let mut dest = base;
-        for index in 0..size {
+        let mut source = unsafe { output_arena.base.add(output_memory.used_before) };
+        for _ in 0..size {
             unsafe {
-                *dest = *output_string.ptr.add(index);
+                *dest = *source;
                 dest = dest.add(1);
+                source = source.add(1);
             }
         }
-        String {
-            ptr: base,
-            size,
-            capacity: size,
-        }
+        String { ptr: base, size }
     };
 
-    memory.transient.used = 0;
+    memory.transient.end_temporary(output_memory);
 
     output_string_permanent
 }
