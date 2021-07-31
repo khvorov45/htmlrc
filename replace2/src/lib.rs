@@ -37,6 +37,11 @@ impl MemoryArena {
         }
         base
     }
+    fn push_byte(&mut self, byte: u8) -> *mut u8 {
+        let base = self.push_size(1);
+        unsafe { *base = byte };
+        base
+    }
 }
 
 struct TransientArena {
@@ -84,23 +89,13 @@ impl String {
     fn from_s(memory: &mut MemoryArena, source: &str) -> String {
         debug_assert!(string_literal_is_valid(source));
 
-        let source_bytes = source.as_bytes();
-        let source_size = source_bytes.len();
-        let total_size = source_size + 1; // NOTE(sen) For the null terminator
-
-        let first_byte = memory.push_size(total_size);
-        let mut dest = first_byte;
-        for source_byte in source_bytes {
-            unsafe {
-                *dest = *source_byte;
-                dest = dest.add(1);
-            };
-        }
-        unsafe { *dest = b'\0' };
+        let used_before = memory.used;
+        let base = memory.push_and_copy(source.as_ptr(), source.as_bytes().len());
+        memory.push_byte(b'\0');
 
         String {
-            ptr: first_byte,
-            size: total_size,
+            ptr: base,
+            size: memory.used - used_before,
         }
     }
 
@@ -109,37 +104,15 @@ impl String {
         debug_assert!(string_literal_is_valid(source2));
         debug_assert!(char_is_valid(ch));
 
-        let source1_bytes = source1.as_bytes();
-        let source1_size = source1_bytes.len();
-
-        let source2_bytes = source2.as_bytes();
-        let source2_size = source2_bytes.len();
-
-        let total_size = source1_size + source2_size + 1; // NOTE(sen) For the null terminator
-
-        let first_byte = memory.push_size(total_size);
-        let mut dest = first_byte;
-        for source_byte in source1_bytes {
-            unsafe {
-                *dest = *source_byte;
-                dest = dest.add(1);
-            };
-        }
-        unsafe {
-            *dest = ch as u8;
-            dest = dest.add(1);
-        };
-        for source_byte in source2_bytes {
-            unsafe {
-                *dest = *source_byte;
-                dest = dest.add(1);
-            };
-        }
-        unsafe { *dest = b'\0' };
+        let used_before = memory.used;
+        let base = memory.push_and_copy(source1.as_ptr(), source1.as_bytes().len());
+        memory.push_byte(ch as u8);
+        memory.push_and_copy(source2.as_ptr(), source2.as_bytes().len());
+        memory.push_byte(b'\0');
 
         String {
-            ptr: first_byte,
-            size: total_size,
+            ptr: base,
+            size: memory.used - used_before,
         }
     }
 
