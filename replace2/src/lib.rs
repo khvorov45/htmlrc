@@ -24,6 +24,19 @@ impl MemoryArena {
         self.used += size;
         result
     }
+    fn push_and_copy(&mut self, ptr: *const u8, size: usize) -> *mut u8 {
+        let base = self.push_size(size);
+        let mut dest = base;
+        let mut source = ptr;
+        for _ in 0..size {
+            unsafe {
+                *dest = *source;
+                dest = dest.add(1);
+                source = source.add(1);
+            }
+        }
+        base
+    }
 }
 
 struct TransientArena {
@@ -56,14 +69,7 @@ impl TemporaryMemory {
     fn copy_between(&mut self, one: *const u8, two: *const u8) {
         let ptr_distance = two as usize - one as usize;
         let arena = unsafe { &mut *self.arena };
-        let mut dest = arena.push_size(ptr_distance);
-        for index in 0..ptr_distance {
-            unsafe {
-                let source = one.add(index);
-                *dest = *source;
-                dest = dest.add(1);
-            };
-        }
+        arena.push_and_copy(one, ptr_distance);
     }
 }
 
@@ -440,17 +446,9 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
 
     let output_string_permanent = {
         let output_arena = unsafe { &*output_memory.arena };
+        let source = unsafe { output_arena.base.add(output_memory.used_before) };
         let size = output_arena.used - output_memory.used_before;
-        let base = memory.permanent.push_size(size);
-        let mut dest = base;
-        let mut source = unsafe { output_arena.base.add(output_memory.used_before) };
-        for _ in 0..size {
-            unsafe {
-                *dest = *source;
-                dest = dest.add(1);
-                source = source.add(1);
-            }
-        }
+        let base = memory.permanent.push_and_copy(source, size);
         String { ptr: base, size }
     };
 
