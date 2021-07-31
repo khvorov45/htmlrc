@@ -116,16 +116,6 @@ impl String {
         }
     }
 
-    fn _as_str(&self) -> &str {
-        unsafe {
-            core::str::from_utf8_unchecked(
-                core::ptr::slice_from_raw_parts(self.ptr, self.size)
-                    .as_ref()
-                    .unwrap(),
-            )
-        }
-    }
-
     fn set_ptr(&mut self, new_ptr: *mut u8) {
         let ptr_distance = new_ptr as usize - self.ptr as usize;
         debug_assert!(ptr_distance < self.size);
@@ -431,8 +421,8 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
 }
 
 fn debug_line(string: &String) {
-    use platform::write_stdout;
-    write_stdout(string._as_str());
+    use platform::{write_stdout, write_stdout_raw};
+    write_stdout_raw(string.ptr, string.size);
     write_stdout("#");
     write_stdout("\n");
 }

@@ -13,6 +13,11 @@ pub(crate) fn write_stdout(text: &str) {
     };
 }
 
+pub(crate) fn write_stdout_raw(ptr: *const u8, size: usize) {
+    use libc::{write, STDOUT_FILENO};
+    unsafe { write(STDOUT_FILENO, ptr as *const _, size) };
+}
+
 pub(crate) fn write_stderr(text: &str) {
     use libc::{write, STDERR_FILENO};
     unsafe {
