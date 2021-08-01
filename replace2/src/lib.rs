@@ -42,6 +42,10 @@ impl MemoryArena {
         unsafe { *base = byte };
         base
     }
+    fn push_struct<T>(&mut self) -> *mut T {
+        let base = self.push_size(core::mem::size_of::<T>());
+        base.cast()
+    }
 }
 
 struct TransientArena {
@@ -116,12 +120,60 @@ impl String {
         }
     }
 
+    // TODO(sen) Clean up &str/String nonsense
+    fn from_scss(
+        memory: &mut MemoryArena,
+        source1: &str,
+        ch: char,
+        source2: &String,
+        source3: &str,
+    ) -> String {
+        debug_assert!(string_literal_is_valid(source1));
+        debug_assert!(string_literal_is_valid(source3));
+        debug_assert!(char_is_valid(ch));
+
+        let used_before = memory.used;
+        let base = memory.push_and_copy(source1.as_ptr(), source1.as_bytes().len());
+        memory.push_byte(ch as u8);
+        memory.push_and_copy(source2.ptr, source2.size);
+        memory.push_and_copy(source3.as_ptr(), source3.as_bytes().len());
+        memory.push_byte(b'\0');
+
+        String {
+            ptr: base,
+            size: memory.used - used_before,
+        }
+    }
+
     fn set_ptr(&mut self, new_ptr: *mut u8) {
         let ptr_distance = new_ptr as usize - self.ptr as usize;
         debug_assert!(ptr_distance < self.size);
         let new_size = self.size - ptr_distance;
         self.size = new_size;
         self.ptr = new_ptr;
+    }
+}
+
+impl core::cmp::PartialEq for String {
+    fn eq(&self, other: &Self) -> bool {
+        let mut result = true;
+        if self.size == other.size {
+            let mut self_byte = self.ptr;
+            let mut other_byte = other.ptr;
+            for _ in 0..self.size {
+                unsafe {
+                    if *self_byte != *other_byte {
+                        result = false;
+                        break;
+                    }
+                    self_byte = self_byte.add(1);
+                    other_byte = other_byte.add(1);
+                }
+            }
+        } else {
+            result = false;
+        }
+        result
     }
 }
 
@@ -138,6 +190,17 @@ fn string_literal_is_valid(literal: &str) -> bool {
 
 fn char_is_valid(ch: char) -> bool {
     ch.is_ascii() || ch == '\0'
+}
+
+struct Components {
+    // TODO(sen) Hash-based lookups
+    first: Option<*const Component>,
+}
+
+struct Component {
+    name: String,
+    contents: String,
+    next: Option<*const Component>,
 }
 
 const KILOBYTE: usize = 1024;
@@ -181,11 +244,14 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             }
         };
 
+        let mut components = Components { first: None };
+
+        // TODO(sen) Permanet store should only be used for the components table (and the final output string)
         let input_file_path =
             String::from_scs(&mut memory.permanent, input_dir, PATH_SEP, input_file_name);
 
         if let Ok(input_string) = read_file(&mut memory.permanent, &input_file_path) {
-            let result = resolve_components(&mut memory, &input_string);
+            let result = resolve_components(&mut memory, &input_string, &mut components, input_dir);
             debug_assert!(memory.transient.used_count == 0);
 
             let output_dir_path = String::from_s(&mut memory.permanent, output_dir);
@@ -291,7 +357,12 @@ struct Byte {
     value: u8,
 }
 
-fn resolve_components(memory: &mut Memory, string: &String) -> String {
+fn resolve_components(
+    memory: &mut Memory,
+    string: &String,
+    components: &mut Components,
+    input_dir: &str,
+) -> String {
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
         if let Some(mut window) = ByteWindow2::new(string) {
             let component_start = {
@@ -386,18 +457,79 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
 
     let mut string_to_parse = *string;
     while let Some(component_used) = find_first_component(&string_to_parse) {
-        // TODO(sen) Read in component contents and store them somewhere (don't read if found)
+        let component_in_hash = {
+            // TODO(sen) Replace with a hash-based lookup
+            let mut lookup_result = None;
+            let mut component_in_hash = components.first;
+            while let Some(component_in_hash_ptr) = component_in_hash {
+                let component_in_hash_value = unsafe { &*component_in_hash_ptr };
+                if component_in_hash_value.name == component_used.name {
+                    lookup_result = Some(component_in_hash_value);
+                    break;
+                } else {
+                    component_in_hash = component_in_hash_value.next;
+                }
+            }
 
-        debug_line(&component_used.first_part);
-        debug_line(&component_used.name);
+            if let Some(component_looked_up) = lookup_result {
+                component_looked_up
+            } else {
+                let new_component = unsafe { &mut *memory.permanent.push_struct::<Component>() };
+                new_component.name = {
+                    let size = component_used.name.size;
+                    let ptr = memory
+                        .permanent
+                        .push_and_copy(component_used.name.ptr, size);
+                    String { ptr, size }
+                };
+
+                let new_component_path = String::from_scss(
+                    &mut memory.permanent,
+                    input_dir,
+                    platform::PATH_SEP,
+                    &new_component.name,
+                    ".html",
+                );
+
+                let new_component_contents_raw_mem = memory.transient.begin_temporary();
+                let new_component_contents_raw_result = platform::read_file(
+                    unsafe { &mut *new_component_contents_raw_mem.arena },
+                    &new_component_path,
+                );
+                if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
+                    // TODO(sen) Remove the trailing whitespaces
+                    new_component.contents = resolve_components(
+                        memory,
+                        &new_component_contents_raw,
+                        components,
+                        input_dir,
+                    );
+                    debug_line(&new_component.contents);
+                } else {
+                    // TODO(sen) Error - component used but not found
+                }
+                memory
+                    .transient
+                    .end_temporary(new_component_contents_raw_mem);
+
+                new_component.next = components.first;
+                components.first = Some(new_component);
+                new_component
+            }
+        };
 
         output_memory.copy_between(string_to_parse.ptr, component_used.first_part.ptr);
 
         if let Some(second_part) = component_used.second_part {
             // TODO(sen) Handle two-parters
         } else {
-            // TODO(sen) Replace the component with its contents
+            // NOTE(sen) Replace the component with its contents
+            unsafe { &mut *output_memory.arena }.push_and_copy(
+                component_in_hash.contents.ptr,
+                component_in_hash.contents.size,
+            );
 
+            // NOTE(sen) Shrink the input string we are parsing
             string_to_parse.set_ptr(unsafe {
                 component_used
                     .first_part
@@ -406,6 +538,9 @@ fn resolve_components(memory: &mut Memory, string: &String) -> String {
             });
         }
     }
+
+    // NOTE(sen) Copy the remaining input string
+    unsafe { &mut *output_memory.arena }.push_and_copy(string_to_parse.ptr, string_to_parse.size);
 
     let output_string_permanent = {
         let output_arena = unsafe { &*output_memory.arena };
