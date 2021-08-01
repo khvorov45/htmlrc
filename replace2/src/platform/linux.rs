@@ -1,6 +1,7 @@
 use crate::{Error, MemoryArena, Result, String};
 
 pub(crate) const PATH_SEP: char = '/';
+pub(crate) const MAX_PATH_BYTES: usize = 4096;
 
 pub(crate) fn write_stdout(text: &str) {
     use libc::{write, STDOUT_FILENO};
