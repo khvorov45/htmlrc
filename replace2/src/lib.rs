@@ -161,12 +161,39 @@ impl String {
         }
     }
 
-    fn set_ptr(&mut self, new_ptr: *mut u8) {
+    fn set_ptr(&mut self, new_ptr: *const u8) {
         let ptr_distance = new_ptr as usize - self.ptr as usize;
         debug_assert!(ptr_distance < self.size);
         let new_size = self.size - ptr_distance;
         self.size = new_size;
         self.ptr = new_ptr;
+    }
+
+    /// Does not modify memory
+    fn trim(&self) -> String {
+        let mut byte = self.ptr;
+        let mut first_non_whitespace = 0;
+        while unsafe { *byte }.is_ascii_whitespace() {
+            byte = unsafe { byte.add(1) };
+            first_non_whitespace += 1;
+        }
+        byte = unsafe { self.ptr.add(self.size - 1) };
+        let mut last_non_whitespace = self.size - 1;
+        while unsafe { *byte }.is_ascii_whitespace() {
+            byte = unsafe { byte.sub(1) };
+            last_non_whitespace -= 1;
+        }
+        let ptr;
+        let size;
+        if last_non_whitespace < first_non_whitespace {
+            // NOTE(sen) This is a whitespace-only string
+            ptr = self.ptr;
+            size = 0
+        } else {
+            ptr = unsafe { self.ptr.add(first_non_whitespace) };
+            size = last_non_whitespace - first_non_whitespace + 1;
+        }
+        String { ptr, size }
     }
 }
 
@@ -228,6 +255,7 @@ struct Components {
 
 struct Component {
     name: String,
+    /// Leading and trailing whitespaces are removed
     contents: String,
     next: Option<*const Component>,
 }
@@ -547,10 +575,10 @@ fn resolve_components(
                 memory.filepath.end_temporary(filepath_memory);
 
                 if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
-                    // TODO(sen) Remove the trailing whitespaces
                     new_component.contents = resolve_components(
                         memory,
-                        &new_component_contents_raw,
+                        // NOTE(sen) We don't want any leading/trailing whitespaces in components
+                        &new_component_contents_raw.trim(),
                         components,
                         input_dir,
                     );
@@ -567,6 +595,7 @@ fn resolve_components(
             }
         };
 
+        // NOTE(sen) Copy the part of the string that's before the component
         output_memory
             .get_arena()
             .push_and_copy_between(string_to_parse.ptr, component_used.first_part.ptr);
@@ -582,7 +611,10 @@ fn resolve_components(
 
             // NOTE(sen) Shrink the input string we are parsing
             string_to_parse.set_ptr(unsafe {
-                (component_used.first_part.ptr as *mut u8).add(component_used.first_part.size)
+                component_used
+                    .first_part
+                    .ptr
+                    .add(component_used.first_part.size)
             });
         }
     }
