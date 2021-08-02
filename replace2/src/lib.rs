@@ -250,7 +250,14 @@ struct Component {
     name: String,
     /// Leading and trailing whitespaces are removed
     contents: String,
+    // TODO(sen) Handle multiple slots
+    /// For components with children (two-parters) only
+    slot: Option<Slot>,
     next: Option<*const Component>,
+}
+
+struct Slot {
+    whole_literal: String,
 }
 
 const KILOBYTE: usize = 1024;
@@ -429,6 +436,7 @@ fn resolve_components(
     components: &mut Components,
     input_dir: &String,
 ) -> String {
+    // TODO(sen) Simplify string traversal, this function can probably just take the window
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
         if let Some(mut window) = ByteWindow2::new(string) {
             let component_start = {
@@ -490,17 +498,84 @@ fn resolve_components(
                 };
 
                 if let Some((end_index, two_part)) = component_end {
+                    let first_part_size = end_index - start_index + 1;
+                    let first_part_string = String {
+                        ptr: start_ptr,
+                        size: first_part_size,
+                    };
                     if two_part {
-                        // TODO(sen) Handle two-parters
-                        None
+                        let mut second_part_string = None;
+                        loop {
+                            if window.this.value == b'<' && window.next.value == b'/' {
+                                let second_part_start_test = window.this.ptr;
+
+                                let name = {
+                                    let mut name_start = unsafe { window.next.ptr.add(1) };
+                                    window.advance_past_whitespace();
+                                    window.advance_one();
+                                    if window.this.value.is_ascii_alphabetic() {
+                                        name_start = window.this.ptr;
+                                        window.advance_one();
+                                    } else {
+                                        // TODO(sen) Error - found `</` not followed by an alphabetic character
+                                    }
+                                    let mut one_past_name_end = unsafe { name_start.add(1) };
+                                    loop {
+                                        if !window.this.value.is_ascii_alphanumeric() {
+                                            one_past_name_end = window.this.ptr;
+                                            break;
+                                        }
+                                        if !window.advance_one() {
+                                            break;
+                                        }
+                                    }
+                                    let name_size =
+                                        one_past_name_end as usize - name_start as usize;
+                                    String {
+                                        ptr: name_start,
+                                        size: name_size,
+                                    }
+                                };
+
+                                if name == component_name {
+                                    let mut second_part_end = unsafe { name.ptr.add(name.size) };
+                                    loop {
+                                        if window.this.value == b'>' {
+                                            second_part_end = window.this.ptr;
+                                        }
+                                        if !window.advance_past_whitespace() {
+                                            break;
+                                        }
+                                    }
+                                    let second_part_size = second_part_end as usize
+                                        - second_part_start_test as usize
+                                        + 1;
+                                    second_part_string = Some(String {
+                                        ptr: second_part_start_test,
+                                        size: second_part_size,
+                                    });
+                                    break;
+                                }
+                            }
+                            if !window.advance_past_whitespace() {
+                                break;
+                            }
+                        }
+
+                        #[allow(clippy::manual_map)]
+                        if let Some(second_part) = second_part_string {
+                            Some(ComponentUsed {
+                                first_part: first_part_string,
+                                second_part: Some(second_part),
+                                name: component_name,
+                            })
+                        } else {
+                            // TODO(sen) Error - found first part but not the second part
+                            None
+                        }
                     } else {
-                        let component_size = end_index - start_index + 1;
-                        let component_string = String {
-                            ptr: start_ptr,
-                            size: component_size,
-                        };
                         Some(ComponentUsed {
-                            first_part: component_string,
+                            first_part: first_part_string,
                             second_part: None,
                             name: component_name,
                         })
@@ -523,6 +598,7 @@ fn resolve_components(
 
     let mut string_to_parse = *string;
     while let Some(component_used) = find_first_component(&string_to_parse) {
+        // NOTE(sen) Find the component in cache or read it anew and store it in cache
         let component_in_hash = {
             // TODO(sen) Replace with a hash-based lookup
             let mut lookup_result = None;
@@ -590,7 +666,31 @@ fn resolve_components(
             .push_and_copy_between(string_to_parse.ptr, component_used.first_part.ptr);
 
         if let Some(second_part) = component_used.second_part {
-            // TODO(sen) Handle two-parters
+            let component_used_contents_raw = {
+                let base = unsafe {
+                    component_used
+                        .first_part
+                        .ptr
+                        .add(component_used.first_part.size)
+                };
+                let one_past_end = second_part.ptr;
+                let size = one_past_end as usize - base as usize;
+                String { ptr: base, size }
+            };
+
+            // TODO(sen) This should probably not go to the final output arena
+            let component_used_contents_processed =
+                resolve_components(memory, &component_used_contents_raw, components, input_dir);
+
+            debug_line(&component_used_contents_processed);
+
+            // TODO(sen) Replace the component with its contents. Those contents
+            // will need their slots resolved with the above string
+
+            debug_line(&component_in_hash.contents);
+
+            // NOTE(sen) Shrink the input string we are parsing
+            string_to_parse.set_ptr(unsafe { second_part.ptr.add(second_part.size) });
         } else {
             // NOTE(sen) Replace the component with its contents
             output_memory.get_arena().push_and_copy(
