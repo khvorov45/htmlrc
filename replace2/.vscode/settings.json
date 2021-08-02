@@ -12,6 +12,7 @@
     "IWGRP",
     "IWUSR",
     "IXOTH",
+    "TRUNC",
     "WRONLY",
     "errno",
     "fstat",
