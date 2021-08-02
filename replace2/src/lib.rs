@@ -108,6 +108,9 @@ impl TemporaryMemory {
     fn get_arena(&mut self) -> &mut MemoryArena {
         unsafe { &mut *self.arena }
     }
+    fn reset(&mut self) {
+        self.get_arena().used = self.used_before;
+    }
 }
 
 /// If null-terminated, the terminator is included in `size`
@@ -324,9 +327,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             let mut filepath_memory = memory.filepath.begin_temporary();
             let output_dir_path = String::from_s(filepath_memory.get_arena(), &output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
-                memory.filepath.end_temporary(filepath_memory);
-
-                let mut filepath_memory = memory.filepath.begin_temporary();
+                filepath_memory.reset();
                 let output_file_path = String::from_scs(
                     filepath_memory.get_arena(),
                     &output_dir,
