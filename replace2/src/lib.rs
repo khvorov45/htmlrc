@@ -8,13 +8,13 @@ type Result<T> = core::result::Result<T, Error>;
 
 struct Memory {
     /// Filepath for input/output, one at a time
-    filepath: TransientArena,
+    filepath: MemoryArena,
     /// Contents of input files read as-is. Multiple at a time. Amount depends
     /// on how much components are nested
-    input: TransientArena,
+    input: MemoryArena,
     /// Resolved string being built up. Multiple at a time. Amount depends on
     /// how much components are nested.
-    output_processing: TransientArena,
+    output_processing: MemoryArena,
     /// Final resolved strings. Amount is the amount of components used plus the
     /// output string
     output_final: MemoryArena,
@@ -26,6 +26,7 @@ struct MemoryArena {
     size: usize,
     base: *mut u8,
     used: usize,
+    temporary_count: usize,
 }
 
 impl MemoryArena {
@@ -34,6 +35,7 @@ impl MemoryArena {
             size,
             base: unsafe { base.add(*offset) },
             used: 0,
+            temporary_count: 0,
         };
         *offset += size;
         result
@@ -71,31 +73,12 @@ impl MemoryArena {
         let ptr_distance = two as usize - one as usize;
         self.push_and_copy(one, ptr_distance);
     }
-}
-
-struct TransientArena {
-    arena: MemoryArena,
-    used_count: u32,
-}
-
-impl TransientArena {
-    fn new(base: *mut u8, offset: &mut usize, size: usize) -> TransientArena {
-        TransientArena {
-            arena: MemoryArena::new(base, offset, size),
-            used_count: 0,
-        }
-    }
     fn begin_temporary(&mut self) -> TemporaryMemory {
-        self.used_count += 1;
+        self.temporary_count += 1;
         TemporaryMemory {
-            arena: &mut self.arena,
-            used_before: self.arena.used,
+            arena: self,
+            used_before: self.used,
         }
-    }
-    fn end_temporary(&mut self, temporary_memory: TemporaryMemory) {
-        debug_assert!(self.used_count >= 1);
-        self.used_count -= 1;
-        unsafe { (*temporary_memory.arena).used = temporary_memory.used_before };
     }
 }
 
@@ -110,6 +93,13 @@ impl TemporaryMemory {
     }
     fn reset(&mut self) {
         self.get_arena().used = self.used_before;
+    }
+    fn end(mut self) {
+        let used_before = self.used_before;
+        let arena = self.get_arena();
+        debug_assert!(arena.temporary_count >= 1);
+        arena.temporary_count -= 1;
+        arena.used = used_before;
     }
 }
 
@@ -288,10 +278,10 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
         let mut memory = {
             let mut size_used = 0;
-            let filepath = TransientArena::new(memory_base_ptr, &mut size_used, filepath_size);
+            let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
             let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
-            let input = TransientArena::new(memory_base_ptr, &mut size_used, io_size);
-            let output_processing = TransientArena::new(memory_base_ptr, &mut size_used, io_size);
+            let input = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
+            let output_processing = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
             let output_final = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
             debug_assert!(size_used == total_memory_size);
             Memory {
@@ -315,14 +305,14 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
         let mut input_memory = memory.input.begin_temporary();
         if let Ok(input_string) = read_file(input_memory.get_arena(), &input_file_path) {
-            memory.filepath.end_temporary(filepath_memory);
+            filepath_memory.end();
 
             let result =
                 resolve_components(&mut memory, &input_string, &mut components, &input_dir);
 
-            debug_assert!(memory.filepath.used_count == 0);
-            debug_assert!(memory.input.used_count == 1);
-            debug_assert!(memory.output_processing.used_count == 0);
+            debug_assert!(memory.filepath.temporary_count == 0);
+            debug_assert!(memory.input.temporary_count == 1);
+            debug_assert!(memory.output_processing.temporary_count == 0);
 
             let mut filepath_memory = memory.filepath.begin_temporary();
             let output_dir_path = String::from_s(filepath_memory.get_arena(), &output_dir);
@@ -573,7 +563,7 @@ fn resolve_components(
                     new_component_contents_raw_mem.get_arena(),
                     &new_component_path,
                 );
-                memory.filepath.end_temporary(filepath_memory);
+                filepath_memory.end();
 
                 if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
                     new_component.contents = resolve_components(
@@ -586,9 +576,7 @@ fn resolve_components(
                 } else {
                     // TODO(sen) Error - component used but not found
                 }
-                memory
-                    .output_processing
-                    .end_temporary(new_component_contents_raw_mem);
+                new_component_contents_raw_mem.end();
 
                 new_component.next = components.first;
                 components.first = Some(new_component);
@@ -633,7 +621,7 @@ fn resolve_components(
         String { ptr: base, size }
     };
 
-    memory.output_processing.end_temporary(output_memory);
+    output_memory.end();
 
     output_string_permanent
 }
