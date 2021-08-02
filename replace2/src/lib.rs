@@ -252,7 +252,6 @@ fn char_is_valid(ch: char) -> bool {
 }
 
 struct Components {
-    // TODO(sen) Keep a pointer to the arena here?
     // TODO(sen) Hash-based lookups
     first: Option<*const Component>,
 }
