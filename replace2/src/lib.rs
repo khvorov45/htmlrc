@@ -12,14 +12,12 @@ struct Memory {
     /// Contents of input files read as-is. Multiple at a time. Amount depends
     /// on how much components are nested
     input: MemoryArena,
-    /// Resolved string being built up. Multiple at a time. Amount depends on
-    /// how much components are nested.
-    output_processing: MemoryArena,
-    /// Final resolved strings. Amount is the amount of components used plus the
-    /// output string
-    output_final: MemoryArena,
-    /// Components table. Pointers go to `output_final`
+    /// Final resolved string
+    output: MemoryArena,
+    /// Components table
     components: MemoryArena,
+    component_names: MemoryArena,
+    component_contents: MemoryArena,
 }
 
 struct MemoryArena {
@@ -88,18 +86,30 @@ struct TemporaryMemory {
 }
 
 impl TemporaryMemory {
-    fn get_arena(&mut self) -> &mut MemoryArena {
+    fn arena(&mut self) -> &mut MemoryArena {
         unsafe { &mut *self.arena }
     }
     fn reset(&mut self) {
-        self.get_arena().used = self.used_before;
+        self.arena().used = self.used_before;
     }
     fn end(mut self) {
         let used_before = self.used_before;
-        let arena = self.get_arena();
+        let arena = self.arena();
         debug_assert!(arena.temporary_count >= 1);
         arena.temporary_count -= 1;
         arena.used = used_before;
+    }
+    fn used_size(&mut self) -> usize {
+        self.arena().used - self.used_before
+    }
+    fn used_base(&mut self) -> *mut u8 {
+        unsafe { self.arena().base.add(self.used_before) }
+    }
+    fn to_string(&mut self) -> String {
+        String {
+            ptr: self.used_base(),
+            size: self.used_size(),
+        }
     }
 }
 
@@ -242,6 +252,7 @@ fn char_is_valid(ch: char) -> bool {
 }
 
 struct Components {
+    // TODO(sen) Keep a pointer to the arena here?
     // TODO(sen) Hash-based lookups
     first: Option<*const Component>,
 }
@@ -266,20 +277,38 @@ const MEGABYTE: usize = KILOBYTE * 1024;
 pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     use platform::{
         allocate_and_clear, create_dir_if_not_exists, exit, read_file, write_file, write_stderr,
-        write_stdout, MAX_PATH_BYTES, PATH_SEP,
+        write_stdout, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
     };
 
     let input_dir = input_dir.to_string();
     let input_file_name = input_file_name.to_string();
     let output_dir = output_dir.to_string();
 
-    let (filepath_size, components_size, io_size, total_memory_size) = {
+    let (
+        filepath_size,
+        components_size,
+        component_names_size,
+        component_contents_size,
+        io_size,
+        total_memory_size,
+    ) = {
         let filepath = MAX_PATH_BYTES;
         // TODO(sen) How many components do we need?
-        let components = 4096 * core::mem::size_of::<Component>();
+        let components_count = 512;
+        let components = components_count * core::mem::size_of::<Component>();
+        let component_names = components_count * MAX_FILENAME_BYTES;
+        // TODO(sen) How big do we expect each component to be?
+        let component_contents = components_count * 128 * KILOBYTE;
         // TODO(sen) How big should each io arena be?
         let io = 10 * MEGABYTE;
-        (filepath, components, io, filepath + components + io * 3)
+        (
+            filepath,
+            components,
+            component_names,
+            component_contents,
+            io,
+            filepath + components + component_names + component_contents + io * 2,
+        )
     };
 
     if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
@@ -287,16 +316,20 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             let mut size_used = 0;
             let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
             let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
+            let component_names =
+                MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
+            let component_contents =
+                MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
             let input = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
-            let output_processing = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
-            let output_final = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
+            let output = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
             debug_assert!(size_used == total_memory_size);
             Memory {
                 filepath,
                 input,
-                output_processing,
-                output_final,
+                output,
                 components,
+                component_names,
+                component_contents,
             }
         };
 
@@ -304,29 +337,33 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
         let mut filepath_memory = memory.filepath.begin_temporary();
         let input_file_path = String::from_scs(
-            filepath_memory.get_arena(),
+            filepath_memory.arena(),
             &input_dir,
             PATH_SEP,
             &input_file_name,
         );
 
         let mut input_memory = memory.input.begin_temporary();
-        if let Ok(input_string) = read_file(input_memory.get_arena(), &input_file_path) {
+        if let Ok(input_string) = read_file(input_memory.arena(), &input_file_path) {
             filepath_memory.end();
 
-            let result =
-                resolve_components(&mut memory, &input_string, &mut components, &input_dir);
+            let result = resolve_components(
+                &mut memory,
+                &mut memory.output,
+                &input_string,
+                &mut components,
+                &input_dir,
+            );
 
             debug_assert!(memory.filepath.temporary_count == 0);
             debug_assert!(memory.input.temporary_count == 1);
-            debug_assert!(memory.output_processing.temporary_count == 0);
 
             let mut filepath_memory = memory.filepath.begin_temporary();
-            let output_dir_path = String::from_s(filepath_memory.get_arena(), &output_dir);
+            let output_dir_path = String::from_s(filepath_memory.arena(), &output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 filepath_memory.reset();
                 let output_file_path = String::from_scs(
-                    filepath_memory.get_arena(),
+                    filepath_memory.arena(),
                     &output_dir,
                     PATH_SEP,
                     &input_file_name,
@@ -431,7 +468,8 @@ struct Byte {
 }
 
 fn resolve_components(
-    memory: &mut Memory,
+    memory: *mut Memory,
+    output_memory: *mut MemoryArena,
     string: &String,
     components: &mut Components,
     input_dir: &String,
@@ -594,8 +632,10 @@ fn resolve_components(
         }
     }
 
-    let mut output_memory = memory.output_processing.begin_temporary();
-
+    let memory = unsafe { &mut *memory };
+    let output_memory = unsafe { &mut *output_memory };
+    let output_used_before = output_memory.used;
+    let output_base = unsafe { output_memory.base.add(output_used_before) };
     let mut string_to_parse = *string;
     while let Some(component_used) = find_first_component(&string_to_parse) {
         // NOTE(sen) Find the component in cache or read it anew and store it in cache
@@ -621,22 +661,22 @@ fn resolve_components(
                 new_component.name = {
                     let size = component_used.name.size;
                     let ptr = memory
-                        .output_final
+                        .component_names
                         .push_and_copy(component_used.name.ptr, size);
                     String { ptr, size }
                 };
 
                 let mut filepath_memory = memory.filepath.begin_temporary();
                 let new_component_path = String::from_scss(
-                    filepath_memory.get_arena(),
+                    filepath_memory.arena(),
                     input_dir,
                     platform::PATH_SEP,
                     &new_component.name,
                     &".html".to_string(),
                 );
-                let mut new_component_contents_raw_mem = memory.output_processing.begin_temporary();
+                let mut new_component_contents_raw_mem = memory.input.begin_temporary();
                 let new_component_contents_raw_result = platform::read_file(
-                    new_component_contents_raw_mem.get_arena(),
+                    new_component_contents_raw_mem.arena(),
                     &new_component_path,
                 );
                 filepath_memory.end();
@@ -644,6 +684,7 @@ fn resolve_components(
                 if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
                     new_component.contents = resolve_components(
                         memory,
+                        &mut memory.component_contents,
                         // NOTE(sen) We don't want any leading/trailing whitespaces in components
                         &new_component_contents_raw.trim(),
                         components,
@@ -661,9 +702,7 @@ fn resolve_components(
         };
 
         // NOTE(sen) Copy the part of the string that's before the component
-        output_memory
-            .get_arena()
-            .push_and_copy_between(string_to_parse.ptr, component_used.first_part.ptr);
+        output_memory.push_and_copy_between(string_to_parse.ptr, component_used.first_part.ptr);
 
         if let Some(second_part) = component_used.second_part {
             let component_used_contents_raw = {
@@ -678,11 +717,17 @@ fn resolve_components(
                 String { ptr: base, size }
             };
 
-            // TODO(sen) This should probably not go to the final output arena
-            let component_used_contents_processed =
-                resolve_components(memory, &component_used_contents_raw, components, input_dir);
+            let mut component_used_contents_processed_mem = memory.input.begin_temporary();
+            let component_used_contents_processed = resolve_components(
+                memory,
+                component_used_contents_processed_mem.arena(),
+                &component_used_contents_raw,
+                components,
+                input_dir,
+            );
 
             debug_line(&component_used_contents_processed);
+            component_used_contents_processed_mem.end();
 
             // TODO(sen) Replace the component with its contents. Those contents
             // will need their slots resolved with the above string
@@ -693,7 +738,7 @@ fn resolve_components(
             string_to_parse.set_ptr(unsafe { second_part.ptr.add(second_part.size) });
         } else {
             // NOTE(sen) Replace the component with its contents
-            output_memory.get_arena().push_and_copy(
+            output_memory.push_and_copy(
                 component_in_hash.contents.ptr,
                 component_in_hash.contents.size,
             );
@@ -709,21 +754,18 @@ fn resolve_components(
     }
 
     // NOTE(sen) Copy the remaining input string
-    output_memory
-        .get_arena()
-        .push_and_copy(string_to_parse.ptr, string_to_parse.size);
+    output_memory.push_and_copy(string_to_parse.ptr, string_to_parse.size);
 
-    let output_string_permanent = {
-        let output_arena = unsafe { &*output_memory.arena };
-        let source = unsafe { output_arena.base.add(output_memory.used_before) };
-        let size = output_arena.used - output_memory.used_before;
-        let base = memory.output_final.push_and_copy(source, size);
-        String { ptr: base, size }
+    #[allow(clippy::let_and_return)]
+    let result = String {
+        ptr: output_base,
+        size: output_memory.used - output_used_before,
     };
 
-    output_memory.end();
+    debug_line(string);
+    debug_line(&result);
 
-    output_string_permanent
+    result
 }
 
 fn debug_line(string: &String) {
