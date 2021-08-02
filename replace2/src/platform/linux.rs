@@ -38,11 +38,11 @@ pub(crate) fn exit() {
 
 pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
     use libc::{
-        __errno_location, close, creat, open, write, O_WRONLY, S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP,
-        S_IWUSR,
+        __errno_location, close, creat, open, write, O_TRUNC, O_WRONLY, S_IRGRP, S_IROTH, S_IRUSR,
+        S_IWGRP, S_IWUSR,
     };
 
-    let mut file_handle = unsafe { open(path.ptr.cast(), O_WRONLY) };
+    let mut file_handle = unsafe { open(path.ptr.cast(), O_WRONLY | O_TRUNC) };
 
     if file_handle == -1 {
         file_handle = unsafe {
