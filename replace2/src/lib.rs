@@ -113,60 +113,48 @@ impl TemporaryMemory {
 /// If null-terminated, the terminator is included in `size`
 #[derive(Clone, Copy)]
 struct String {
-    ptr: *mut u8,
+    ptr: *const u8,
     size: usize,
 }
 
 impl String {
-    fn from_s(memory: &mut MemoryArena, source: &str) -> String {
-        debug_assert!(string_literal_is_valid(source));
-
+    fn from_s(memory: &mut MemoryArena, source: &String) -> String {
         let used_before = memory.used;
-        let base = memory.push_and_copy(source.as_ptr(), source.as_bytes().len());
+        let base = memory.push_and_copy(source.ptr, source.size);
         memory.push_byte(b'\0');
-
         String {
             ptr: base,
             size: memory.used - used_before,
         }
     }
 
-    fn from_scs(memory: &mut MemoryArena, source1: &str, ch: char, source2: &str) -> String {
-        debug_assert!(string_literal_is_valid(source1));
-        debug_assert!(string_literal_is_valid(source2));
+    fn from_scs(memory: &mut MemoryArena, source1: &String, ch: char, source2: &String) -> String {
         debug_assert!(char_is_valid(ch));
-
         let used_before = memory.used;
-        let base = memory.push_and_copy(source1.as_ptr(), source1.as_bytes().len());
-        memory.push_byte(ch as u8);
-        memory.push_and_copy(source2.as_ptr(), source2.as_bytes().len());
-        memory.push_byte(b'\0');
-
-        String {
-            ptr: base,
-            size: memory.used - used_before,
-        }
-    }
-
-    // TODO(sen) Clean up &str/String nonsense
-    fn from_scss(
-        memory: &mut MemoryArena,
-        source1: &str,
-        ch: char,
-        source2: &String,
-        source3: &str,
-    ) -> String {
-        debug_assert!(string_literal_is_valid(source1));
-        debug_assert!(string_literal_is_valid(source3));
-        debug_assert!(char_is_valid(ch));
-
-        let used_before = memory.used;
-        let base = memory.push_and_copy(source1.as_ptr(), source1.as_bytes().len());
+        let base = memory.push_and_copy(source1.ptr, source1.size);
         memory.push_byte(ch as u8);
         memory.push_and_copy(source2.ptr, source2.size);
-        memory.push_and_copy(source3.as_ptr(), source3.as_bytes().len());
         memory.push_byte(b'\0');
+        String {
+            ptr: base,
+            size: memory.used - used_before,
+        }
+    }
 
+    fn from_scss(
+        memory: &mut MemoryArena,
+        source1: &String,
+        ch: char,
+        source2: &String,
+        source3: &String,
+    ) -> String {
+        debug_assert!(char_is_valid(ch));
+        let used_before = memory.used;
+        let base = memory.push_and_copy(source1.ptr, source1.size);
+        memory.push_byte(ch as u8);
+        memory.push_and_copy(source2.ptr, source2.size);
+        memory.push_and_copy(source3.ptr, source3.size);
+        memory.push_byte(b'\0');
         String {
             ptr: base,
             size: memory.used - used_before,
@@ -205,6 +193,19 @@ impl core::cmp::PartialEq for String {
     }
 }
 
+trait ToString {
+    fn to_string(&self) -> String;
+}
+impl ToString for str {
+    fn to_string(&self) -> String {
+        debug_assert!(string_literal_is_valid(self));
+        String {
+            ptr: self.as_ptr(),
+            size: self.as_bytes().len(),
+        }
+    }
+}
+
 fn string_literal_is_valid(literal: &str) -> bool {
     let mut result = true;
     for ch in literal.chars() {
@@ -240,6 +241,10 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
         write_stdout, MAX_PATH_BYTES, PATH_SEP,
     };
 
+    let input_dir = input_dir.to_string();
+    let input_file_name = input_file_name.to_string();
+    let output_dir = output_dir.to_string();
+
     let (filepath_size, components_size, io_size, total_memory_size) = {
         let filepath = MAX_PATH_BYTES;
         // TODO(sen) How many components do we need?
@@ -272,32 +277,33 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
         let mut filepath_memory = memory.filepath.begin_temporary();
         let input_file_path = String::from_scs(
             filepath_memory.get_arena(),
-            input_dir,
+            &input_dir,
             PATH_SEP,
-            input_file_name,
+            &input_file_name,
         );
 
         let mut input_memory = memory.input.begin_temporary();
         if let Ok(input_string) = read_file(input_memory.get_arena(), &input_file_path) {
             memory.filepath.end_temporary(filepath_memory);
 
-            let result = resolve_components(&mut memory, &input_string, &mut components, input_dir);
+            let result =
+                resolve_components(&mut memory, &input_string, &mut components, &input_dir);
 
             debug_assert!(memory.filepath.used_count == 0);
             debug_assert!(memory.input.used_count == 1);
             debug_assert!(memory.output_processing.used_count == 0);
 
             let mut filepath_memory = memory.filepath.begin_temporary();
-            let output_dir_path = String::from_s(filepath_memory.get_arena(), output_dir);
+            let output_dir_path = String::from_s(filepath_memory.get_arena(), &output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 memory.filepath.end_temporary(filepath_memory);
 
                 let mut filepath_memory = memory.filepath.begin_temporary();
                 let output_file_path = String::from_scs(
                     filepath_memory.get_arena(),
-                    output_dir,
+                    &output_dir,
                     PATH_SEP,
-                    input_file_name,
+                    &input_file_name,
                 );
                 if write_file(&output_file_path, &result).is_ok() {
                     write_stdout("Done\n");
@@ -326,7 +332,7 @@ struct ComponentUsed {
 
 struct ByteWindow2 {
     last_byte_index: usize,
-    base_ptr: *mut u8,
+    base_ptr: *const u8,
     this: Byte,
     next: Byte,
 }
@@ -393,7 +399,7 @@ impl ByteWindow2 {
 
 #[derive(Clone, Copy)]
 struct Byte {
-    ptr: *mut u8,
+    ptr: *const u8,
     index: usize,
     value: u8,
 }
@@ -402,7 +408,7 @@ fn resolve_components(
     memory: &mut Memory,
     string: &String,
     components: &mut Components,
-    input_dir: &str,
+    input_dir: &String,
 ) -> String {
     fn find_first_component(string: &String) -> Option<ComponentUsed> {
         if let Some(mut window) = ByteWindow2::new(string) {
@@ -531,7 +537,7 @@ fn resolve_components(
                     input_dir,
                     platform::PATH_SEP,
                     &new_component.name,
-                    ".html",
+                    &".html".to_string(),
                 );
                 let mut new_component_contents_raw_mem = memory.output_processing.begin_temporary();
                 let new_component_contents_raw_result = platform::read_file(
@@ -576,10 +582,7 @@ fn resolve_components(
 
             // NOTE(sen) Shrink the input string we are parsing
             string_to_parse.set_ptr(unsafe {
-                component_used
-                    .first_part
-                    .ptr
-                    .add(component_used.first_part.size)
+                (component_used.first_part.ptr as *mut u8).add(component_used.first_part.size)
             });
         }
     }
