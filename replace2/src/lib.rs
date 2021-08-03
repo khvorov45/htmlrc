@@ -417,6 +417,15 @@ impl ByteWindow2 {
         }
     }
 
+    fn advance(&mut self, count: usize) -> usize {
+        let mut counter = 0;
+        for _ in 0..count {
+            self.advance_one();
+            counter += 1;
+        }
+        counter
+    }
+
     fn advance_past_whitespace(&mut self) -> bool {
         if self.next.ptr < self.last_byte {
             // NOTE(sen) Find the next non-whitespace character
@@ -480,6 +489,56 @@ impl ByteWindow2 {
     fn remaining(&self) -> usize {
         size_between(self.this.ptr, self.last_byte)
     }
+
+    fn find(&mut self, target: &[u8], skip: Skip, stop: Stop) -> Option<*const u8> {
+        let mut result = None;
+        if !target.is_empty() {
+            'search: loop {
+                let test_start_ptr = self.this.ptr;
+                let mut all_equal = true;
+                for (target_index, target_value) in target.iter().enumerate() {
+                    let test_ptr = unsafe { test_start_ptr.add(target_index) };
+                    let test_value = unsafe { *test_ptr };
+                    if test_value != *target_value {
+                        all_equal = false;
+                        break;
+                    }
+                }
+                if all_equal {
+                    match stop {
+                        Stop::First => result = Some(test_start_ptr),
+                        Stop::Last => {
+                            result = Some(unsafe { test_start_ptr.add(target.len() - 1) })
+                        }
+                    }
+                    break 'search;
+                }
+                match skip {
+                    Skip::Everything => {
+                        if !self.advance_one() {
+                            break 'search;
+                        }
+                    }
+                    Skip::Whitespace => {
+                        if !self.this.value.is_ascii_whitespace() || !self.advance_one() {
+                            break 'search;
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+}
+
+enum Skip {
+    Whitespace,
+    Everything,
+}
+
+enum Stop {
+    First,
+    Last,
 }
 
 #[derive(Clone, Copy)]
@@ -665,7 +724,33 @@ fn resolve_components(
                             components,
                             input_dir,
                         );
-                        // TODO(sen) Find the component's slots
+
+                        new_component.slot = None;
+                        if let Some(mut component_contents_window) =
+                            ByteWindow2::new(&new_component.contents)
+                        {
+                            let target = b"<slot";
+                            if let Some(slot_start_ptr) = component_contents_window.find(
+                                target,
+                                Skip::Everything,
+                                Stop::First,
+                            ) {
+                                component_contents_window.advance(target.len());
+                                if let Some(slot_end_ptr) = component_contents_window.find(
+                                    b"/>",
+                                    Skip::Whitespace,
+                                    Stop::Last,
+                                ) {
+                                    let whole_literal = String {
+                                        ptr: slot_start_ptr,
+                                        size: size_between(slot_start_ptr, slot_end_ptr),
+                                    };
+                                    new_component.slot = Some(Slot { whole_literal });
+                                } else {
+                                    // TODO(sen) Error - found start but not end
+                                }
+                            }
+                        };
                     } else {
                         // TODO(sen) Error - component used but not found
                     }
