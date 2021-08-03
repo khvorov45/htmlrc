@@ -558,11 +558,13 @@ fn resolve_components(
         let first_part_start = {
             let mut result = None;
             loop {
-                if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
-                    result = Some(window.this.ptr);
-                    break;
+                if let Some(tag_start) = window.find(b"<", Skip::Everything, Stop::First) {
+                    if window.next.value.is_ascii_uppercase() {
+                        result = Some(tag_start);
+                        break;
+                    }
                 }
-                if !window.advance_past_whitespace() {
+                if !window.advance_one() {
                     break;
                 }
             }
