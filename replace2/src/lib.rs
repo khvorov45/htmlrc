@@ -483,6 +483,7 @@ fn resolve_components(
     components: &mut Components,
     input_dir: &String,
 ) -> String {
+    // TODO(sen) Another pass on this, I don't like how convoluted it still is
     fn find_next_component(window: &mut ByteWindow2) -> Option<ComponentUsed> {
         let first_part_start = {
             let mut result = None;
