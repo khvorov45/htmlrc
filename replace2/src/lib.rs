@@ -425,7 +425,11 @@ impl ByteWindow2 {
             while ptr <= self.last_byte {
                 let value = unsafe { *ptr };
                 if !value.is_ascii_whitespace() {
-                    self.this = self.next;
+                    if self.this.value.is_ascii_whitespace()
+                        || !self.next.value.is_ascii_whitespace()
+                    {
+                        self.this = self.next;
+                    }
                     self.next = Byte { ptr, value };
                     non_whitespace_found = true;
                     break;
