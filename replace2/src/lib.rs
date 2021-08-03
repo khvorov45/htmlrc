@@ -661,6 +661,7 @@ fn resolve_components(
                             components,
                             input_dir,
                         );
+                        // TODO(sen) Find the component's slots
                     } else {
                         // TODO(sen) Error - component used but not found
                     }
