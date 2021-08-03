@@ -99,18 +99,6 @@ impl TemporaryMemory {
         arena.temporary_count -= 1;
         arena.used = used_before;
     }
-    fn used_size(&mut self) -> usize {
-        self.arena().used - self.used_before
-    }
-    fn used_base(&mut self) -> *mut u8 {
-        unsafe { self.arena().base.add(self.used_before) }
-    }
-    fn to_string(&mut self) -> String {
-        String {
-            ptr: self.used_base(),
-            size: self.used_size(),
-        }
-    }
 }
 
 /// If null-terminated, the terminator is included in `size`
@@ -162,14 +150,6 @@ impl String {
             ptr: base,
             size: memory.used - used_before,
         }
-    }
-
-    fn set_ptr(&mut self, new_ptr: *const u8) {
-        let ptr_distance = new_ptr as usize - self.ptr as usize;
-        debug_assert!(ptr_distance < self.size);
-        let new_size = self.size - ptr_distance;
-        self.size = new_size;
-        self.ptr = new_ptr;
     }
 
     /// Does not modify memory
@@ -385,6 +365,11 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     exit();
 }
 
+fn size_between(ptr1: *const u8, ptr2: *const u8) -> usize {
+    debug_assert!(ptr2 > ptr1);
+    ptr2 as usize - ptr1 as usize + 1
+}
+
 struct ComponentUsed {
     first_part: String,
     second_part: Option<String>,
@@ -393,8 +378,6 @@ struct ComponentUsed {
 }
 
 struct ByteWindow2 {
-    base_ptr: *const u8,
-    base_size: usize,
     last_byte: *const u8,
     this: Byte,
     next: Byte,
@@ -405,8 +388,6 @@ impl ByteWindow2 {
         if string.size >= 2 {
             let second_ptr = unsafe { string.ptr.add(1) };
             Some(ByteWindow2 {
-                base_ptr: string.ptr,
-                base_size: string.size,
                 last_byte: unsafe { string.ptr.add(string.size - 1) },
                 this: Byte {
                     ptr: string.ptr,
@@ -492,14 +473,8 @@ impl ByteWindow2 {
         }
     }
 
-    fn move_base_past(&mut self, string: &String) {
-        let new_base = unsafe { string.ptr.add(string.size) };
-        debug_assert!(new_base >= self.base_ptr);
-        debug_assert!(new_base < unsafe { self.base_ptr.add(self.base_size - 1) });
-        let new_size = unsafe { self.base_ptr.add(self.base_size) } as usize - new_base as usize;
-        debug_assert!(new_size <= self.base_size);
-        self.base_ptr = new_base;
-        self.base_size = new_size;
+    fn remaining(&self) -> usize {
+        size_between(self.this.ptr, self.last_byte)
     }
 }
 
@@ -560,7 +535,7 @@ fn resolve_components(
 
         let first_part = String {
             ptr: first_part_start,
-            size: first_part_end as usize - first_part_start as usize + 1,
+            size: size_between(first_part_start, first_part_end),
         };
 
         let second_part = if two_part {
@@ -611,7 +586,7 @@ fn resolve_components(
             };
             let second_part = String {
                 ptr: second_part_start,
-                size: second_part_end as usize - second_part_start as usize + 1,
+                size: size_between(second_part_start, second_part_end),
             };
             Some(second_part)
         } else {
@@ -630,6 +605,8 @@ fn resolve_components(
     let output_used_before = output_memory.used;
     let output_base = unsafe { output_memory.base.add(output_used_before) };
     if let Some(mut window) = ByteWindow2::new(string) {
+        let mut search_start = window.this.ptr;
+        let mut search_length = window.remaining();
         while let Some(component_used) = find_next_component(&mut window) {
             // NOTE(sen) Find the component in cache or read it anew and store it in cache
             let component_in_hash = {
@@ -696,7 +673,7 @@ fn resolve_components(
             };
 
             // NOTE(sen) Copy the part of the string that's before the component
-            output_memory.push_and_copy_between(window.base_ptr, component_used.first_part.ptr);
+            output_memory.push_and_copy_between(search_start, component_used.first_part.ptr);
 
             if let Some(second_part) = component_used.second_part {
                 let component_used_contents_raw = {
@@ -724,19 +701,20 @@ fn resolve_components(
 
                 // TODO(sen) Replace the component with its contents. Those contents
                 // will need their slots resolved with the above string
-
-                window.move_base_past(&second_part);
             } else {
                 // NOTE(sen) Replace the component with its contents
                 output_memory.push_and_copy(
                     component_in_hash.contents.ptr,
                     component_in_hash.contents.size,
                 );
-                window.move_base_past(&component_used.first_part);
             }
+
+            // NOTE(sen) Reset for the next loop
+            search_start = window.this.ptr;
+            search_length = window.remaining();
         }
-        // NOTE(sen) Copy the remaining input string
-        output_memory.push_and_copy(window.base_ptr, window.base_size);
+        // NOTE(sen) Copy the part of the input string where no component was found
+        output_memory.push_and_copy(search_start, search_length);
     } else {
         // NOTE(sen) Couldn't create window - copy the whole input string
         output_memory.push_and_copy(string.ptr, string.size);
