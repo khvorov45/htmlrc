@@ -395,6 +395,7 @@ struct ComponentUsed {
 struct ByteWindow2 {
     base_ptr: *const u8,
     base_size: usize,
+    last_byte: *const u8,
     this: Byte,
     next: Byte,
 }
@@ -406,14 +407,13 @@ impl ByteWindow2 {
             Some(ByteWindow2 {
                 base_ptr: string.ptr,
                 base_size: string.size,
+                last_byte: unsafe { string.ptr.add(string.size - 1) },
                 this: Byte {
                     ptr: string.ptr,
-                    index: 0,
                     value: unsafe { *string.ptr },
                 },
                 next: Byte {
                     ptr: second_ptr,
-                    index: 1,
                     value: unsafe { *second_ptr },
                 },
             })
@@ -423,13 +423,11 @@ impl ByteWindow2 {
     }
 
     fn advance_one(&mut self) -> bool {
-        if self.next.index < self.base_size - 1 {
+        if self.next.ptr < self.last_byte {
             self.this = self.next;
-            let next_index = (self.next.index + 1) as usize;
-            let next_ptr = unsafe { self.base_ptr.add(next_index) };
+            let next_ptr = unsafe { self.next.ptr.add(1) };
             self.next = Byte {
                 ptr: next_ptr,
-                index: next_index,
                 value: unsafe { *next_ptr },
             };
             true
@@ -439,22 +437,58 @@ impl ByteWindow2 {
     }
 
     fn advance_past_whitespace(&mut self) -> bool {
-        if self.next.index < self.base_size {
+        if self.next.ptr < self.last_byte {
             // NOTE(sen) Find the next non-whitespace character
             let mut non_whitespace_found = false;
-            for index in (self.next.index + 1)..self.base_size {
-                let ptr = unsafe { self.base_ptr.add(index) };
+            let mut ptr = unsafe { self.next.ptr.add(1) };
+            while ptr <= self.last_byte {
                 let value = unsafe { *ptr };
                 if !value.is_ascii_whitespace() {
                     self.this = self.next;
-                    self.next = Byte { ptr, index, value };
+                    self.next = Byte { ptr, value };
                     non_whitespace_found = true;
                     break;
                 }
+                ptr = unsafe { ptr.add(1) };
             }
             non_whitespace_found
         } else {
             false
+        }
+    }
+
+    fn next_name(&mut self) -> Option<String> {
+        let start = {
+            let mut result = None;
+            loop {
+                if self.this.value.is_ascii_alphabetic() {
+                    result = Some(self.this.ptr);
+                    break;
+                } else if !self.this.value.is_ascii_whitespace() {
+                    break;
+                }
+                if !self.advance_one() {
+                    break;
+                }
+            }
+            result
+        };
+        if let Some(start) = start {
+            let mut size = 0;
+            loop {
+                if self.this.value.is_ascii_alphanumeric() {
+                    size += 1;
+                } else {
+                    break;
+                }
+                if !self.advance_one() {
+                    break;
+                }
+            }
+            let result = String { ptr: start, size };
+            Some(result)
+        } else {
+            None
         }
     }
 
@@ -472,7 +506,6 @@ impl ByteWindow2 {
 #[derive(Clone, Copy)]
 struct Byte {
     ptr: *const u8,
-    index: usize,
     value: u8,
 }
 
@@ -483,14 +516,37 @@ fn resolve_components(
     components: &mut Components,
     input_dir: &String,
 ) -> String {
-    // TODO(sen) Another pass on this, I don't like how convoluted it still is
     fn find_next_component(window: &mut ByteWindow2) -> Option<ComponentUsed> {
         let first_part_start = {
             let mut result = None;
             loop {
                 if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
                     result = Some(window.this.ptr);
+                    break;
+                }
+                if !window.advance_past_whitespace() {
+                    break;
+                }
+            }
+            result?
+        };
+
+        window.advance_one();
+        // TODO(sen) If none - error
+        let component_name = window.next_name()?;
+
+        // TODO(sen) Parse arguments
+
+        let (first_part_end, two_part) = {
+            let mut result = None;
+            loop {
+                if window.this.value == b'/' && window.next.value == b'>' {
+                    result = Some((window.next.ptr, false));
                     window.advance_one();
+                    window.advance_one();
+                    break;
+                } else if window.this.value == b'>' {
+                    result = Some((window.this.ptr, true));
                     window.advance_one();
                     break;
                 }
@@ -498,123 +554,47 @@ fn resolve_components(
                     break;
                 }
             }
-            result
+            // TODO(sen) If none - error
+            result?
         };
 
-        let component_name = {
-            if let Some(start_ptr) = first_part_start {
-                let name_start_ptr = unsafe { start_ptr.add(1) };
-                let mut name_length = 1;
-                loop {
-                    if window.this.value.is_ascii_alphanumeric() {
-                        name_length += 1;
-                    } else {
-                        break;
-                    }
-                    if !window.advance_one() {
-                        break;
-                    }
-                }
-                Some(String {
-                    ptr: name_start_ptr,
-                    size: name_length,
-                })
-            } else {
-                None
-            }
+        let first_part = String {
+            ptr: first_part_start,
+            size: first_part_end as usize - first_part_start as usize + 1,
         };
 
-        // TODO(sen) Parse arguments
-
-        let first_part_end = {
-            if first_part_start.is_some() {
+        let second_part = if two_part {
+            let second_part_start = {
                 let mut result = None;
                 loop {
-                    if window.this.value == b'/' && window.next.value == b'>' {
-                        result = Some((window.next.ptr, false));
-                        window.advance_one();
-                        window.advance_one();
-                        break;
-                    } else if window.this.value == b'>' {
-                        result = Some((window.this.ptr, true));
-                        window.advance_one();
+                    let test_start = {
+                        let mut result = None;
+                        loop {
+                            if window.this.value == b'<' && window.next.value == b'/' {
+                                result = Some(window.this.ptr);
+                                window.advance_one();
+                                window.advance_one();
+                                break;
+                            }
+                            if !window.advance_past_whitespace() {
+                                break;
+                            }
+                        }
+                        result
+                    };
+                    let test_name = window.next_name();
+                    if test_name == Some(component_name) {
+                        result = test_start;
                         break;
                     }
                     if !window.advance_past_whitespace() {
                         break;
                     }
                 }
-                result
-            } else {
-                None
-            }
-        };
-
-        let second_part_start = {
-            if let Some((_, two_part)) = first_part_end {
-                if two_part {
-                    let mut result = None;
-                    loop {
-                        let test_start = {
-                            let mut result = None;
-                            loop {
-                                if window.this.value == b'<' && window.next.value == b'/' {
-                                    result = Some(window.this.ptr);
-                                    window.advance_one();
-                                    window.advance_one();
-                                    break;
-                                }
-                                if !window.advance_past_whitespace() {
-                                    break;
-                                }
-                            }
-                            result
-                        };
-                        let test_name = {
-                            if let Some(test_start) = test_start {
-                                window.advance_one();
-                                let name_start_ptr = unsafe { test_start.add(2) };
-                                let mut name_length = 1;
-                                loop {
-                                    if window.this.value.is_ascii_alphanumeric() {
-                                        name_length += 1;
-                                    } else {
-                                        break;
-                                    }
-                                    if !window.advance_one() {
-                                        break;
-                                    }
-                                }
-                                let result = String {
-                                    ptr: name_start_ptr,
-                                    size: name_length,
-                                };
-                                Some(result)
-                            } else {
-                                None
-                            }
-                        };
-                        if test_name.is_some() && test_name == component_name {
-                            result = test_start;
-                            break;
-                        }
-                        if !window.advance_past_whitespace() {
-                            break;
-                        }
-                    }
-                    result
-                } else {
-                    // NOTE(sen) Not a two-part component
-                    None
-                }
-            } else {
-                // NOTE(sen) No second part
-                None
-            }
-        };
-
-        let second_part_end = {
-            if second_part_start.is_some() {
+                // TODO(sen) If none - error
+                result?
+            };
+            let second_part_end = {
                 let mut result = None;
                 loop {
                     if window.this.value == b'>' {
@@ -626,51 +606,23 @@ fn resolve_components(
                         break;
                     }
                 }
-                result
-            } else {
-                None
-            }
+                // TODO(sen) If none - error
+                result?
+            };
+            let second_part = String {
+                ptr: second_part_start,
+                size: second_part_end as usize - second_part_start as usize + 1,
+            };
+            Some(second_part)
+        } else {
+            None
         };
 
-        if let Some(first_part_start) = first_part_start {
-            if let Some(name) = component_name {
-                if let Some((first_part_end, two_part)) = first_part_end {
-                    let first_part = String {
-                        ptr: first_part_start,
-                        size: first_part_end as usize - first_part_start as usize + 1,
-                    };
-                    let mut second_part = None;
-                    if two_part {
-                        if let Some(second_part_start) = second_part_start {
-                            if let Some(second_part_end) = second_part_end {
-                                second_part = Some(String {
-                                    ptr: second_part_start,
-                                    size: second_part_end as usize - second_part_start as usize + 1,
-                                });
-                            } else {
-                                // TODO(sen) Error - found second part start but not end
-                            }
-                        } else {
-                            // TODO(sen) Error - component is two-part but no second part found
-                        }
-                    }
-                    Some(ComponentUsed {
-                        first_part,
-                        second_part,
-                        name,
-                    })
-                } else {
-                    // TODO(sen) Error - found first part start and name but not end
-                    None
-                }
-            } else {
-                // TODO(sen) Error - found first part start but not name
-                None
-            }
-        } else {
-            // NOTE(sen) No first part
-            None
-        }
+        Some(ComponentUsed {
+            first_part,
+            second_part,
+            name: component_name,
+        })
     }
 
     let memory = unsafe { &mut *memory };
@@ -768,13 +720,10 @@ fn resolve_components(
                     input_dir,
                 );
 
-                debug_line(&component_used_contents_processed);
                 component_used_contents_processed_mem.end();
 
                 // TODO(sen) Replace the component with its contents. Those contents
                 // will need their slots resolved with the above string
-
-                debug_line(&component_in_hash.contents);
 
                 window.move_base_past(&second_part);
             } else {
@@ -798,9 +747,6 @@ fn resolve_components(
         ptr: output_base,
         size: output_memory.used - output_used_before,
     };
-
-    debug_line(string);
-    debug_line(&result);
 
     result
 }
