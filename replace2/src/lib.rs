@@ -404,7 +404,7 @@ impl ByteWindow2 {
     }
 
     fn advance_one(&mut self) -> bool {
-        if self.next.ptr < self.last_byte {
+        if self.can_advance() {
             self.this = self.next;
             let next_ptr = unsafe { self.next.ptr.add(1) };
             self.next = Byte {
@@ -490,6 +490,10 @@ impl ByteWindow2 {
         size_between(self.this.ptr, self.last_byte)
     }
 
+    fn can_advance(&self) -> bool {
+        self.next.ptr < self.last_byte
+    }
+
     fn find(&mut self, target: &[u8], skip: Skip, stop: Stop) -> Option<*const u8> {
         let mut result = None;
         if !target.is_empty() {
@@ -505,10 +509,14 @@ impl ByteWindow2 {
                     }
                 }
                 if all_equal {
+                    result = Some(test_start_ptr);
                     match stop {
-                        Stop::First => result = Some(test_start_ptr),
+                        Stop::First => {}
                         Stop::Last => {
-                            result = Some(unsafe { test_start_ptr.add(target.len() - 1) })
+                            self.advance(target.len() - 1);
+                        }
+                        Stop::OnePast => {
+                            self.advance(target.len());
                         }
                     }
                     break 'search;
@@ -539,6 +547,7 @@ enum Skip {
 enum Stop {
     First,
     Last,
+    OnePast,
 }
 
 #[derive(Clone, Copy)]
@@ -558,20 +567,19 @@ fn resolve_components(
         let first_part_start = {
             let mut result = None;
             loop {
-                if let Some(tag_start) = window.find(b"<", Skip::Everything, Stop::First) {
-                    if window.next.value.is_ascii_uppercase() {
+                if let Some(tag_start) = window.find(b"<", Skip::Everything, Stop::OnePast) {
+                    if window.this.value.is_ascii_uppercase() {
                         result = Some(tag_start);
                         break;
                     }
                 }
-                if !window.advance_one() {
+                if !window.can_advance() {
                     break;
                 }
             }
             result?
         };
 
-        window.advance_one();
         // TODO(sen) If none - error
         let component_name = window.next_name()?;
 
@@ -735,17 +743,16 @@ fn resolve_components(
                             if let Some(slot_start_ptr) = component_contents_window.find(
                                 target,
                                 Skip::Everything,
-                                Stop::First,
+                                Stop::OnePast,
                             ) {
-                                component_contents_window.advance(target.len());
                                 if let Some(slot_end_ptr) = component_contents_window.find(
                                     b"/>",
                                     Skip::Whitespace,
-                                    Stop::Last,
+                                    Stop::First,
                                 ) {
                                     let whole_literal = String {
                                         ptr: slot_start_ptr,
-                                        size: size_between(slot_start_ptr, slot_end_ptr),
+                                        size: size_between(slot_start_ptr, slot_end_ptr) + 1,
                                     };
                                     new_component.slot = Some(Slot { whole_literal });
                                 } else {
