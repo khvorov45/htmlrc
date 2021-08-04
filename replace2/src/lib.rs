@@ -461,34 +461,6 @@ impl ByteWindow2 {
     fn can_advance(&self) -> bool {
         self.next.ptr < self.last_byte
     }
-
-    fn find_slot(&mut self) -> Option<*const u8> {
-        let target = b"<slot";
-        let mut result = None;
-        if !target.is_empty() {
-            'search: loop {
-                let test_start_ptr = self.this.ptr;
-                let mut all_equal = true;
-                for (target_index, target_value) in target.iter().enumerate() {
-                    let test_ptr = unsafe { test_start_ptr.add(target_index) };
-                    let test_value = unsafe { *test_ptr };
-                    if test_value != *target_value {
-                        all_equal = false;
-                        break;
-                    }
-                }
-                if all_equal {
-                    result = Some(test_start_ptr);
-                    self.advance(target.len());
-                    break 'search;
-                }
-                if !self.advance_one() {
-                    break 'search;
-                }
-            }
-        }
-        result
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -683,23 +655,41 @@ fn resolve_components(
                         if let Some(mut component_contents_window) =
                             ByteWindow2::new(&new_component.contents)
                         {
-                            // TODO(sen) Inline `find_slot`
-                            if let Some(slot_start_ptr) = component_contents_window.find_slot() {
-                                component_contents_window.skip_whitespace();
-                                if component_contents_window.this.value == b'/'
-                                    && component_contents_window.next.value == b'>'
-                                {
-                                    let whole_literal = String {
-                                        ptr: slot_start_ptr,
-                                        size: size_between(
-                                            slot_start_ptr,
-                                            component_contents_window.next.ptr,
-                                        ),
-                                    };
-                                    new_component.slot = Some(Slot { whole_literal });
-                                    component_contents_window.advance(2);
-                                } else {
-                                    // TODO(sen) Error - found start but not end
+                            let target = b"<slot";
+                            'search: loop {
+                                let test_start_ptr = component_contents_window.this.ptr;
+                                let mut all_equal = true;
+                                for (target_index, target_value) in target.iter().enumerate() {
+                                    let test_ptr = unsafe { test_start_ptr.add(target_index) };
+                                    let test_value = unsafe { *test_ptr };
+                                    if test_value != *target_value {
+                                        all_equal = false;
+                                        break;
+                                    }
+                                }
+                                if all_equal {
+                                    // NOTE(sen) Moving past the opening and
+                                    // whitespace should land us at the ending
+                                    component_contents_window.advance(target.len());
+                                    component_contents_window.skip_whitespace();
+                                    if component_contents_window.this.value == b'/'
+                                        && component_contents_window.next.value == b'>'
+                                    {
+                                        let whole_literal = String {
+                                            ptr: test_start_ptr,
+                                            size: size_between(
+                                                test_start_ptr,
+                                                component_contents_window.next.ptr,
+                                            ),
+                                        };
+                                        new_component.slot = Some(Slot { whole_literal });
+                                    } else {
+                                        // TODO(sen) Error - found start but not end
+                                    }
+                                    break 'search;
+                                }
+                                if !component_contents_window.advance_one() {
+                                    break 'search;
                                 }
                             }
                         };
