@@ -527,18 +527,26 @@ fn resolve_components(
     components: &mut Components,
     input_dir: &String,
 ) -> String {
+    // TODO(sen) Cleaner way to handle memory here
     let memory = unsafe { &mut *memory };
     let output_memory = unsafe { &mut *output_memory };
+
+    // NOTE(sen) Output preparation, write final resolved string to `output_base`
     let output_used_before = output_memory.used;
     let output_base = unsafe { output_memory.base.add(output_used_before) };
 
+    // NOTE(sen) Component resolution
     if let Some(mut window) = ByteWindow2::new(string) {
+        // NOTE(sen) If there is no custom component, use this to copy input to output
         let mut search_start = window.this.ptr;
         let mut search_length = window.size_from_this();
 
+        // NOTE(sen) Search through input and replace components with their contents
         'component_search: loop {
             // NOTE(sen) Find a custom component
             let component_used = {
+                // NOTE(sen) Components start with < followed by an uppercase
+                // letter, no spaces in-between
                 let first_part_start = {
                     let mut result = None;
                     loop {
@@ -565,8 +573,12 @@ fn resolve_components(
                     None => break 'component_search,
                 };
 
+                // NOTE(sen) Should be just past the name at this point
+
                 // TODO(sen) Parse arguments
 
+                // NOTE(sen) The opening tag should end with > for two-part
+                // components and /> for one-part components
                 let (first_part_end, two_part) = {
                     let mut result = None;
                     // TODO(sen) This should not be a loop
@@ -596,14 +608,18 @@ fn resolve_components(
                     size: size_between(first_part_start, first_part_end),
                 };
 
+                // NOTE(sen) Second part (if present) is just </[spaces]NAME[spaces]>
                 let second_part = if two_part {
                     let mut result = None;
                     loop {
+                        // NOTE(sen) There shouldn't be any spaces between these two
                         if window.this.value == b'<' && window.next.value == b'/' {
                             let test_start = window.this.ptr;
                             window.advance(2);
+                            // NOTE(sen) This will skip whitespaces
                             let test_name = window.next_name();
                             if test_name == Some(component_name) {
+                                // NOTE(sen) Only whitespaces are allowed before closing
                                 window.skip_whitespace();
                                 if window.this.value == b'>' {
                                     result = Some(String {
@@ -656,6 +672,8 @@ fn resolve_components(
                     // NOTE(sen) This should be zeroed since the areana is never overwritten
                     let new_component =
                         unsafe { &mut *memory.components.push_struct::<Component>() };
+
+                    // NOTE(sen) Name from use
                     new_component.name = {
                         let size = component_used.name.size;
                         let ptr = memory
@@ -664,6 +682,7 @@ fn resolve_components(
                         String { ptr, size }
                     };
 
+                    // NOTE(sen) Read in contents from file
                     let mut filepath_memory = memory.filepath.begin_temporary();
                     let new_component_path = String::from_scss(
                         filepath_memory.arena(),
@@ -678,8 +697,8 @@ fn resolve_components(
                         &new_component_path,
                     );
                     filepath_memory.end();
-
                     if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
+                        // NOTE(sen) Resolve other components (but not slots) in the component string
                         new_component.contents = resolve_components(
                             memory,
                             &mut memory.component_contents,
@@ -689,6 +708,7 @@ fn resolve_components(
                             input_dir,
                         );
 
+                        // NOTE(sen) Find the slot (if present)
                         new_component.slot = None;
                         if let Some(mut component_contents_window) =
                             ByteWindow2::new(&new_component.contents)
@@ -699,6 +719,7 @@ fn resolve_components(
                                 Skip::Everything,
                                 Stop::OnePast,
                             ) {
+                                // TODO(sen) Just use .skip_whitepace()
                                 if let Some(slot_end_ptr) = component_contents_window.find(
                                     b"/>",
                                     Skip::Whitespace,
@@ -719,6 +740,7 @@ fn resolve_components(
                     }
                     new_component_contents_raw_mem.end();
 
+                    // NOTE(sen) Append to the list
                     new_component.next = components.first;
                     components.first = Some(new_component);
                     new_component
@@ -728,7 +750,9 @@ fn resolve_components(
             // NOTE(sen) Copy the part of the string that's before the component
             output_memory.push_and_copy_between(search_start, component_used.first_part.ptr);
 
+            // NOTE(sen) Resolve the component appropriately
             if let Some(second_part) = component_used.second_part {
+                // NOTE(sen) This is still raw input
                 let component_used_contents_raw = {
                     let base = unsafe {
                         component_used
@@ -741,6 +765,8 @@ fn resolve_components(
                     String { ptr: base, size }
                 };
 
+                // NOTE(sen) Resolve components (but not slots) the string
+                // that's in-between the component parts
                 let mut component_used_contents_processed_mem = memory.input.begin_temporary();
                 let component_used_contents_processed = resolve_components(
                     memory,
@@ -749,11 +775,9 @@ fn resolve_components(
                     components,
                     input_dir,
                 );
-
                 component_used_contents_processed_mem.end();
 
-                // TODO(sen) Replace the component with its contents. Those contents
-                // will need their slots resolved with the above string
+                // TODO(sen) Resolve component slots and write the resulting string to output
             } else {
                 // NOTE(sen) Replace the component with its contents
                 output_memory.push_and_copy(
@@ -774,6 +798,7 @@ fn resolve_components(
         output_memory.push_and_copy(string.ptr, string.size);
     }
 
+    // NOTE(sen) All output should be in the output arena at this point
     #[allow(clippy::let_and_return)]
     let result = String {
         ptr: output_base,
@@ -783,6 +808,7 @@ fn resolve_components(
     result
 }
 
+// TODO(sen) Debug logging
 fn debug_line(string: &String) {
     use platform::{write_stdout, write_stdout_raw};
     write_stdout_raw(string.ptr, string.size);
