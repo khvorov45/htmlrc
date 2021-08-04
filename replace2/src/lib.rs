@@ -462,7 +462,8 @@ impl ByteWindow2 {
         self.next.ptr < self.last_byte
     }
 
-    fn find(&mut self, target: &[u8], skip: Skip, stop: Stop) -> Option<*const u8> {
+    fn find_slot(&mut self) -> Option<*const u8> {
+        let target = b"<slot";
         let mut result = None;
         if !target.is_empty() {
             'search: loop {
@@ -478,40 +479,16 @@ impl ByteWindow2 {
                 }
                 if all_equal {
                     result = Some(test_start_ptr);
-                    match stop {
-                        Stop::First => {}
-                        Stop::OnePast => {
-                            self.advance(target.len());
-                        }
-                    }
+                    self.advance(target.len());
                     break 'search;
                 }
-                match skip {
-                    Skip::Everything => {
-                        if !self.advance_one() {
-                            break 'search;
-                        }
-                    }
-                    Skip::Whitespace => {
-                        if !self.this.value.is_ascii_whitespace() || !self.advance_one() {
-                            break 'search;
-                        }
-                    }
+                if !self.advance_one() {
+                    break 'search;
                 }
             }
         }
         result
     }
-}
-
-enum Skip {
-    Whitespace,
-    Everything,
-}
-
-enum Stop {
-    First,
-    OnePast,
 }
 
 #[derive(Clone, Copy)]
@@ -706,23 +683,20 @@ fn resolve_components(
                         if let Some(mut component_contents_window) =
                             ByteWindow2::new(&new_component.contents)
                         {
-                            let target = b"<slot";
-                            if let Some(slot_start_ptr) = component_contents_window.find(
-                                target,
-                                Skip::Everything,
-                                Stop::OnePast,
-                            ) {
-                                // TODO(sen) Just use .skip_whitepace()
-                                if let Some(slot_end_ptr) = component_contents_window.find(
-                                    b"/>",
-                                    Skip::Whitespace,
-                                    Stop::First,
-                                ) {
+                            if let Some(slot_start_ptr) = component_contents_window.find_slot() {
+                                component_contents_window.skip_whitespace();
+                                if component_contents_window.this.value == b'/'
+                                    && component_contents_window.next.value == b'>'
+                                {
                                     let whole_literal = String {
                                         ptr: slot_start_ptr,
-                                        size: size_between(slot_start_ptr, slot_end_ptr) + 1,
+                                        size: size_between(
+                                            slot_start_ptr,
+                                            component_contents_window.next.ptr,
+                                        ),
                                     };
                                     new_component.slot = Some(Slot { whole_literal });
+                                    component_contents_window.advance(2);
                                 } else {
                                     // TODO(sen) Error - found start but not end
                                 }
@@ -771,7 +745,18 @@ fn resolve_components(
                 component_used_contents_processed_mem.end();
 
                 // TODO(sen) Resolve component slots and write the resulting string to output
+                debug_line(&component_used_contents_processed);
+                debug_line(&component_in_hash.contents);
+                if let Some(slot) = &component_in_hash.slot {
+                    debug_line(&slot.whole_literal);
+                } else {
+                    // TODO(sen) Error - second part present in component used
+                    // but no slot to put it in
+                }
             } else {
+                if component_in_hash.slot.is_some() {
+                    // TODO(sen) Error - slot present in definition but used as a one-parter
+                }
                 // NOTE(sen) Replace the component with its contents
                 output_memory.push_and_copy(
                     component_in_hash.contents.ptr,
