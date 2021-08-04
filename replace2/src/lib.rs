@@ -203,6 +203,16 @@ impl core::cmp::PartialEq for String {
     }
 }
 
+impl core::fmt::Display for String {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let source = self.ptr;
+        for index in 0..self.size {
+            f.write_char(unsafe { *source.add(index) } as char)?;
+        }
+        Ok(())
+    }
+}
+
 trait ToString {
     fn to_string(&self) -> String;
 }
@@ -263,6 +273,12 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     let input_file_name = input_file_name.to_string();
     let output_dir = output_dir.to_string();
 
+    debug_log_title("START");
+    debug_log!("Input directory: {}\n", &input_dir);
+    debug_log!("Input file: {}\n", &input_file_name);
+    debug_log!("output_dir: {}\n", &output_dir);
+    debug_log_line_sep();
+
     let (
         filepath_size,
         components_size,
@@ -289,6 +305,15 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             filepath + components + component_names + component_contents + io * 2,
         )
     };
+
+    // TODO(sen) Number formatting
+    debug_log_title("MEMORY");
+    debug_log!("Filepath: {}\n", filepath_size);
+    debug_log!("Components: {}\n", components_size);
+    debug_log!("Component names: {}\n", component_names_size);
+    debug_log!("Component contents: {}\n", component_contents_size);
+    debug_log!("IO: {}\n", io_size);
+    debug_log!("Total: {}\n", total_memory_size);
 
     if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
         let mut memory = {
@@ -777,10 +802,59 @@ fn resolve_components(
     result
 }
 
-// TODO(sen) Debug logging
+// SECTION Debug logging
+
+// TODO(sen) Make this go away for release builds
+
 fn debug_line(string: &String) {
-    use platform::{write_stdout, write_stdout_raw};
-    write_stdout_raw(string.ptr, string.size);
-    write_stdout("#");
-    write_stdout("\n");
+    debug_log!("#{}#\n", string);
+}
+
+fn debug_log_line_sep() {
+    debug_log!("--------------\n");
+}
+
+fn debug_log_title(string: &str) {
+    debug_log!("#### {} ####\n", string);
+}
+
+use core::fmt::Write;
+
+struct Log<'a> {
+    buf: &'a mut [u8],
+    offset: usize,
+}
+
+impl<'a> Log<'a> {
+    fn new(buf: &'a mut [u8]) -> Log {
+        Log { buf, offset: 0 }
+    }
+}
+
+impl<'a> Write for Log<'a> {
+    fn write_str(&mut self, string: &str) -> core::fmt::Result {
+        let bytes = string.as_bytes();
+        let remainder = &mut self.buf[self.offset..];
+        if remainder.len() >= bytes.len() {
+            let dest = &mut remainder[..bytes.len()];
+            dest.copy_from_slice(bytes);
+            self.offset += bytes.len();
+            Ok(())
+        } else {
+            Err(core::fmt::Error)
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {
+        // TODO(sen) Better buffer handling here
+        let mut buf = [0; 40];
+        if ::core::write!(Log::new(&mut buf), $($arg)*).is_ok() {
+            $crate::platform::write_stdout_raw(buf.as_ptr(), buf.len());
+        } else {
+            $crate::platform::write_stderr("couldn't write to buffer\n");
+        }
+    };
 }
