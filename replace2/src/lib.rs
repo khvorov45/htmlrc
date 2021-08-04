@@ -380,6 +380,7 @@ struct ComponentUsed {
 struct ByteWindow2 {
     last_byte: *const u8,
     this: Byte,
+    /// Always one byte away from `this`
     next: Byte,
 }
 
@@ -417,76 +418,43 @@ impl ByteWindow2 {
         }
     }
 
-    fn advance(&mut self, count: usize) -> usize {
+    fn skip_whitespace(&mut self) -> usize {
         let mut counter = 0;
-        for _ in 0..count {
+        while self.this.value.is_ascii_whitespace() && self.can_advance() {
             self.advance_one();
             counter += 1;
         }
         counter
     }
 
-    fn advance_past_whitespace(&mut self) -> bool {
-        if self.next.ptr < self.last_byte {
-            // NOTE(sen) Find the next non-whitespace character
-            let mut non_whitespace_found = false;
-            let mut ptr = unsafe { self.next.ptr.add(1) };
-            while ptr <= self.last_byte {
-                let value = unsafe { *ptr };
-                if !value.is_ascii_whitespace() {
-                    if self.this.value.is_ascii_whitespace()
-                        || !self.next.value.is_ascii_whitespace()
-                    {
-                        self.this = self.next;
-                    }
-                    self.next = Byte { ptr, value };
-                    non_whitespace_found = true;
-                    break;
-                }
-                ptr = unsafe { ptr.add(1) };
+    fn advance(&mut self, count: usize) -> usize {
+        let mut counter = 0;
+        for _ in 0..count {
+            if !self.advance_one() {
+                break;
             }
-            non_whitespace_found
-        } else {
-            false
+            counter += 1;
         }
+        counter
     }
 
+    /// Will advance just past the name
     fn next_name(&mut self) -> Option<String> {
-        let start = {
-            let mut result = None;
-            loop {
-                if self.this.value.is_ascii_alphabetic() {
-                    result = Some(self.this.ptr);
-                    break;
-                } else if !self.this.value.is_ascii_whitespace() {
-                    break;
-                }
-                if !self.advance_one() {
-                    break;
-                }
-            }
-            result
-        };
-        if let Some(start) = start {
+        let mut result = None;
+        self.skip_whitespace();
+        if self.this.value.is_ascii_alphabetic() {
+            let base = self.this.ptr;
             let mut size = 0;
-            loop {
-                if self.this.value.is_ascii_alphanumeric() {
-                    size += 1;
-                } else {
-                    break;
-                }
-                if !self.advance_one() {
-                    break;
-                }
+            while self.this.value.is_ascii_alphanumeric() && self.can_advance() {
+                size += 1;
+                self.advance_one();
             }
-            let result = String { ptr: start, size };
-            Some(result)
-        } else {
-            None
+            result = Some(String { ptr: base, size })
         }
+        result
     }
 
-    fn remaining(&self) -> usize {
+    fn size_from_this(&self) -> usize {
         size_between(self.this.ptr, self.last_byte)
     }
 
@@ -512,9 +480,6 @@ impl ByteWindow2 {
                     result = Some(test_start_ptr);
                     match stop {
                         Stop::First => {}
-                        Stop::Last => {
-                            self.advance(target.len() - 1);
-                        }
                         Stop::OnePast => {
                             self.advance(target.len());
                         }
@@ -546,7 +511,6 @@ enum Skip {
 
 enum Stop {
     First,
-    Last,
     OnePast,
 }
 
@@ -590,15 +554,14 @@ fn resolve_components(
             loop {
                 if window.this.value == b'/' && window.next.value == b'>' {
                     result = Some((window.next.ptr, false));
-                    window.advance_one();
-                    window.advance_one();
+                    window.advance(2);
                     break;
                 } else if window.this.value == b'>' {
                     result = Some((window.this.ptr, true));
                     window.advance_one();
                     break;
                 }
-                if !window.advance_past_whitespace() {
+                if !window.advance_one() {
                     break;
                 }
             }
@@ -612,56 +575,33 @@ fn resolve_components(
         };
 
         let second_part = if two_part {
-            let second_part_start = {
-                let mut result = None;
-                loop {
-                    let test_start = {
-                        let mut result = None;
-                        loop {
-                            if window.this.value == b'<' && window.next.value == b'/' {
-                                result = Some(window.this.ptr);
-                                window.advance_one();
-                                window.advance_one();
-                                break;
-                            }
-                            if !window.advance_past_whitespace() {
-                                break;
-                            }
-                        }
-                        result
-                    };
+            let mut result = None;
+            loop {
+                if window.this.value == b'<' && window.next.value == b'/' {
+                    let test_start = window.this.ptr;
+                    window.advance(2);
                     let test_name = window.next_name();
                     if test_name == Some(component_name) {
-                        result = test_start;
-                        break;
-                    }
-                    if !window.advance_past_whitespace() {
-                        break;
-                    }
-                }
-                // TODO(sen) If none - error
-                result?
-            };
-            let second_part_end = {
-                let mut result = None;
-                loop {
-                    if window.this.value == b'>' {
-                        result = Some(window.this.ptr);
-                        window.advance_one();
-                        break;
-                    }
-                    if !window.advance_past_whitespace() {
+                        window.skip_whitespace();
+                        if window.this.value == b'>' {
+                            result = Some(String {
+                                ptr: test_start,
+                                size: size_between(test_start, window.this.ptr),
+                            });
+                            window.advance_one();
+                            break;
+                        } else {
+                            // TODO(sen) Error - found opening but not closing
+                        }
                         break;
                     }
                 }
-                // TODO(sen) If none - error
-                result?
-            };
-            let second_part = String {
-                ptr: second_part_start,
-                size: size_between(second_part_start, second_part_end),
-            };
-            Some(second_part)
+                if !window.advance_one() {
+                    break;
+                }
+            }
+            // TODO(sen) If none - error
+            result
         } else {
             None
         };
@@ -679,7 +619,7 @@ fn resolve_components(
     let output_base = unsafe { output_memory.base.add(output_used_before) };
     if let Some(mut window) = ByteWindow2::new(string) {
         let mut search_start = window.this.ptr;
-        let mut search_length = window.remaining();
+        let mut search_length = window.size_from_this();
         while let Some(component_used) = find_next_component(&mut window) {
             // NOTE(sen) Find the component in cache or read it anew and store it in cache
             let component_in_hash = {
@@ -810,7 +750,7 @@ fn resolve_components(
 
             // NOTE(sen) Reset for the next loop
             search_start = window.this.ptr;
-            search_length = window.remaining();
+            search_length = window.size_from_this();
         }
         // NOTE(sen) Copy the part of the input string where no component was found
         output_memory.push_and_copy(search_start, search_length);
