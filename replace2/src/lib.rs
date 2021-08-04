@@ -567,19 +567,19 @@ fn resolve_components(
         let first_part_start = {
             let mut result = None;
             loop {
-                if let Some(tag_start) = window.find(b"<", Skip::Everything, Stop::OnePast) {
-                    if window.this.value.is_ascii_uppercase() {
-                        result = Some(tag_start);
-                        break;
-                    }
+                if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
+                    result = Some(window.this.ptr);
+                    break;
                 }
-                if !window.can_advance() {
+                if !window.advance_one() {
                     break;
                 }
             }
             result?
         };
 
+        // NOTE(sen) Advance up to the name
+        window.advance_one();
         // TODO(sen) If none - error
         let component_name = window.next_name()?;
 
