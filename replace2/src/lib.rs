@@ -683,6 +683,7 @@ fn resolve_components(
                         if let Some(mut component_contents_window) =
                             ByteWindow2::new(&new_component.contents)
                         {
+                            // TODO(sen) Inline `find_slot`
                             if let Some(slot_start_ptr) = component_contents_window.find_slot() {
                                 component_contents_window.skip_whitespace();
                                 if component_contents_window.this.value == b'/'
