@@ -581,20 +581,13 @@ fn resolve_components(
                 // components and /> for one-part components
                 let (first_part_end, two_part) = {
                     let mut result = None;
-                    // TODO(sen) This should not be a loop
-                    loop {
-                        if window.this.value == b'/' && window.next.value == b'>' {
-                            result = Some((window.next.ptr, false));
-                            window.advance(2);
-                            break;
-                        } else if window.this.value == b'>' {
-                            result = Some((window.this.ptr, true));
-                            window.advance_one();
-                            break;
-                        }
-                        if !window.advance_one() {
-                            break;
-                        }
+                    window.skip_whitespace();
+                    if window.this.value == b'/' && window.next.value == b'>' {
+                        result = Some((window.next.ptr, false));
+                        window.advance(2);
+                    } else if window.this.value == b'>' {
+                        result = Some((window.this.ptr, true));
+                        window.advance_one();
                     }
                     match result {
                         Some(result) => result,
