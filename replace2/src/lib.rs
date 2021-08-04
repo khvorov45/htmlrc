@@ -527,100 +527,114 @@ fn resolve_components(
     components: &mut Components,
     input_dir: &String,
 ) -> String {
-    fn find_next_component(window: &mut ByteWindow2) -> Option<ComponentUsed> {
-        let first_part_start = {
-            let mut result = None;
-            loop {
-                if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
-                    result = Some(window.this.ptr);
-                    break;
-                }
-                if !window.advance_one() {
-                    break;
-                }
-            }
-            result?
-        };
-
-        // NOTE(sen) Advance up to the name
-        window.advance_one();
-        // TODO(sen) If none - error
-        let component_name = window.next_name()?;
-
-        // TODO(sen) Parse arguments
-
-        let (first_part_end, two_part) = {
-            let mut result = None;
-            loop {
-                if window.this.value == b'/' && window.next.value == b'>' {
-                    result = Some((window.next.ptr, false));
-                    window.advance(2);
-                    break;
-                } else if window.this.value == b'>' {
-                    result = Some((window.this.ptr, true));
-                    window.advance_one();
-                    break;
-                }
-                if !window.advance_one() {
-                    break;
-                }
-            }
-            // TODO(sen) If none - error
-            result?
-        };
-
-        let first_part = String {
-            ptr: first_part_start,
-            size: size_between(first_part_start, first_part_end),
-        };
-
-        let second_part = if two_part {
-            let mut result = None;
-            loop {
-                if window.this.value == b'<' && window.next.value == b'/' {
-                    let test_start = window.this.ptr;
-                    window.advance(2);
-                    let test_name = window.next_name();
-                    if test_name == Some(component_name) {
-                        window.skip_whitespace();
-                        if window.this.value == b'>' {
-                            result = Some(String {
-                                ptr: test_start,
-                                size: size_between(test_start, window.this.ptr),
-                            });
-                            window.advance_one();
-                            break;
-                        } else {
-                            // TODO(sen) Error - found opening but not closing
-                        }
-                        break;
-                    }
-                }
-                if !window.advance_one() {
-                    break;
-                }
-            }
-            // TODO(sen) If none - error
-            result
-        } else {
-            None
-        };
-
-        Some(ComponentUsed {
-            first_part,
-            second_part,
-            name: component_name,
-        })
-    }
-
     let memory = unsafe { &mut *memory };
     let output_memory = unsafe { &mut *output_memory };
     let output_used_before = output_memory.used;
     let output_base = unsafe { output_memory.base.add(output_used_before) };
+
     if let Some(mut window) = ByteWindow2::new(string) {
         let mut search_start = window.this.ptr;
         let mut search_length = window.size_from_this();
-        while let Some(component_used) = find_next_component(&mut window) {
+
+        'component_search: loop {
+            // NOTE(sen) Find a custom component
+            let component_used = {
+                let first_part_start = {
+                    let mut result = None;
+                    loop {
+                        if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
+                            result = Some(window.this.ptr);
+                            break;
+                        }
+                        if !window.advance_one() {
+                            break;
+                        }
+                    }
+                    match result {
+                        Some(start) => start,
+                        // NOTE(sen) Component not present in window
+                        None => break 'component_search,
+                    }
+                };
+
+                // NOTE(sen) Advance up to the name
+                window.advance_one();
+                let component_name = match window.next_name() {
+                    Some(name) => name,
+                    // TODO(sen) Error - found start but not name
+                    None => break 'component_search,
+                };
+
+                // TODO(sen) Parse arguments
+
+                let (first_part_end, two_part) = {
+                    let mut result = None;
+                    // TODO(sen) This should not be a loop
+                    loop {
+                        if window.this.value == b'/' && window.next.value == b'>' {
+                            result = Some((window.next.ptr, false));
+                            window.advance(2);
+                            break;
+                        } else if window.this.value == b'>' {
+                            result = Some((window.this.ptr, true));
+                            window.advance_one();
+                            break;
+                        }
+                        if !window.advance_one() {
+                            break;
+                        }
+                    }
+                    match result {
+                        Some(result) => result,
+                        // TODO(sen) Error - found start and name but not end of that tag
+                        None => break 'component_search,
+                    }
+                };
+
+                let first_part = String {
+                    ptr: first_part_start,
+                    size: size_between(first_part_start, first_part_end),
+                };
+
+                let second_part = if two_part {
+                    let mut result = None;
+                    loop {
+                        if window.this.value == b'<' && window.next.value == b'/' {
+                            let test_start = window.this.ptr;
+                            window.advance(2);
+                            let test_name = window.next_name();
+                            if test_name == Some(component_name) {
+                                window.skip_whitespace();
+                                if window.this.value == b'>' {
+                                    result = Some(String {
+                                        ptr: test_start,
+                                        size: size_between(test_start, window.this.ptr),
+                                    });
+                                    window.advance_one();
+                                    break;
+                                } else {
+                                    // TODO(sen) Error - found opening but not closing
+                                }
+                                break;
+                            }
+                        }
+                        if !window.advance_one() {
+                            break;
+                        }
+                    }
+                    // TODO(sen) If none - error
+                    result
+                } else {
+                    None
+                };
+
+                ComponentUsed {
+                    first_part,
+                    second_part,
+                    name: component_name,
+                }
+            };
+
             // NOTE(sen) Find the component in cache or read it anew and store it in cache
             let component_in_hash = {
                 // TODO(sen) Replace with a hash-based lookup
@@ -752,6 +766,7 @@ fn resolve_components(
             search_start = window.this.ptr;
             search_length = window.size_from_this();
         }
+
         // NOTE(sen) Copy the part of the input string where no component was found
         output_memory.push_and_copy(search_start, search_length);
     } else {
