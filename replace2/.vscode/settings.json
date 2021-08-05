@@ -17,6 +17,7 @@
     "errno",
     "fstat",
     "mkdir",
-    "mmap"
+    "mmap",
+    "nsec"
   ]
 }

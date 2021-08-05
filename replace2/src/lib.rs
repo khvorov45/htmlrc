@@ -265,11 +265,11 @@ const MEGABYTE: usize = KILOBYTE * 1024;
 
 pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     use platform::{
-        allocate_and_clear, create_dir_if_not_exists, exit, read_file, write_file,
-        MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
+        allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
+        read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
     };
 
-    // TODO(sen) Timing
+    let program_start_time = get_timespec_now();
 
     let input_dir = input_dir.to_string();
     let input_file_name = input_file_name.to_string();
@@ -383,6 +383,10 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 #[allow(clippy::branches_sharing_code)]
                 if write_file(&output_file_path, &result).is_ok() {
                     log_info!("Wrote output to {}\n", output_file_path);
+                    log_debug!(
+                        "Completed in {:.5}s\n",
+                        get_seconds_from(&program_start_time)
+                    );
                 } else {
                     log_error!("Failed to write to output file {}\n", output_file_path);
                 }

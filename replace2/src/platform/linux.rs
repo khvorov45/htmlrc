@@ -156,3 +156,27 @@ pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
         Ok(ptr.cast())
     }
 }
+
+pub(crate) struct TimeSpec {
+    seconds: i64,
+    nanoseconds: i64,
+}
+
+pub(crate) fn get_timespec_now() -> TimeSpec {
+    use libc::{clock_gettime, timespec, CLOCK_MONOTONIC};
+    unsafe {
+        let mut timespec: timespec = core::mem::MaybeUninit::zeroed().assume_init();
+        clock_gettime(CLOCK_MONOTONIC, &mut timespec);
+        TimeSpec {
+            seconds: timespec.tv_sec,
+            nanoseconds: timespec.tv_nsec,
+        }
+    }
+}
+
+pub(crate) fn get_seconds_from(timespec: &TimeSpec) -> f32 {
+    let now = get_timespec_now();
+    let seconds = now.seconds - timespec.seconds;
+    let nanoseconds = now.nanoseconds - timespec.nanoseconds;
+    seconds as f32 + nanoseconds as f32 * 1e-9
+}
