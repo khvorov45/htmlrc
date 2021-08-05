@@ -306,14 +306,16 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
         )
     };
 
-    // TODO(sen) Number formatting
     debug_log_title("MEMORY");
-    debug_log!("Filepath: {}\n", filepath_size);
-    debug_log!("Components: {}\n", components_size);
-    debug_log!("Component names: {}\n", component_names_size);
-    debug_log!("Component contents: {}\n", component_contents_size);
-    debug_log!("IO: {}\n", io_size);
-    debug_log!("Total: {}\n", total_memory_size);
+    debug_log!("Filepath: {}B\n", filepath_size);
+    debug_log!("Components: {}KB\n", components_size / 1024);
+    debug_log!("Component names: {}KB\n", component_names_size / 1024);
+    debug_log!(
+        "Component contents: {}MB\n",
+        component_contents_size / 1024 / 1024
+    );
+    debug_log!("IO: {}MB\n", io_size / 1024 / 1024);
+    debug_log!("Total: {}MB\n", total_memory_size / 1024 / 1024);
 
     if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
         let mut memory = {
