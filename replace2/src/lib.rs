@@ -357,12 +357,13 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
         if let Ok(input_string) = read_file(input_memory.arena(), &input_file_path) {
             log_debug!("started resolution of input at {}\n", input_file_path);
             filepath_memory.end();
-            let result = resolve_components(
+            let result = resolve(
                 &mut memory,
                 &mut memory.output,
                 &input_string,
                 &mut components,
                 &input_dir,
+                None,
             );
             log_debug!("input resolution finished\n");
 
@@ -512,12 +513,20 @@ struct Byte {
     value: u8,
 }
 
-fn resolve_components(
+// TODO(sen) Rework this to handle components and slots in a cleaner way by
+// reading the input as a token stream where the tokens are plain strings to be
+// pasted, plain components whose (resolved) contents need to be pasted or
+// two-parter components whose contents need to be pasted. For the two-parter
+// components, the resolution has the additional step of filling slots, (slot
+// being one of the token types but it's special since we need external
+// information to resolve it)
+fn resolve(
     memory: *mut Memory,
     output_memory: *mut MemoryArena,
     string: &String,
     components: &mut Components,
     input_dir: &String,
+    slot_fill: Option<&String>,
 ) -> String {
     // TODO(sen) Cleaner way to handle memory here
     let memory = unsafe { &mut *memory };
@@ -694,13 +703,14 @@ fn resolve_components(
                             new_component.name
                         );
                         // NOTE(sen) Resolve other components (but not slots) in the component string
-                        new_component.contents = resolve_components(
+                        new_component.contents = resolve(
                             memory,
                             &mut memory.component_contents,
                             // NOTE(sen) We don't want any leading/trailing whitespaces in components
                             &new_component_contents_raw.trim(),
                             components,
                             input_dir,
+                            None,
                         );
                         log_debug!("resolved new component {}\n", new_component.name);
                         log_debug_line_sep();
@@ -797,12 +807,13 @@ fn resolve_components(
                         "starting resolution of the insides of component {}\n",
                         component_in_hash.name
                     );
-                    resolve_components(
+                    resolve(
                         memory,
                         output_memory,
                         &component_used_contents_raw,
                         components,
                         input_dir,
+                        None,
                     );
                     log_debug!(
                         "finished resolution of the insides of component {}\n",
