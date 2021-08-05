@@ -18,6 +18,7 @@
     "fstat",
     "mkdir",
     "mmap",
-    "nsec"
+    "nsec",
+    "rdtsc"
   ]
 }
