@@ -770,47 +770,55 @@ fn resolve_components(
             // NOTE(sen) Resolve the component appropriately
             if let Some(second_part) = component_used.second_part {
                 log_debug!("component {} is a two-parter\n", component_in_hash.name);
-                // NOTE(sen) This is still raw input
-                let component_used_contents_raw = {
-                    let base = unsafe {
-                        component_used
-                            .first_part
-                            .ptr
-                            .add(component_used.first_part.size)
-                    };
-                    let one_past_end = second_part.ptr;
-                    let size = one_past_end as usize - base as usize;
-                    String { ptr: base, size }
-                };
-
-                // NOTE(sen) Resolve components (but not slots) the string
-                // that's in-between the component parts
-                log_debug_line_sep();
-                log_debug!(
-                    "starting resolution of the insides of component {}\n",
-                    component_in_hash.name
-                );
-                let mut component_used_contents_processed_mem = memory.input.begin_temporary();
-                let component_used_contents_processed = resolve_components(
-                    memory,
-                    component_used_contents_processed_mem.arena(),
-                    &component_used_contents_raw,
-                    components,
-                    input_dir,
-                );
-                log_debug!(
-                    "finished resolution of the insides of component {}\n",
-                    component_in_hash.name
-                );
-                log_debug_line_sep();
-
-                // TODO(sen) Resolve component slots and write the resulting string to output
-                debug_line_raw(&component_used_contents_processed);
-                debug_line_raw(&component_in_hash.contents);
-
-                component_used_contents_processed_mem.end();
                 if let Some(slot) = &component_in_hash.slot {
-                    debug_line_raw(&slot.whole_literal);
+                    // NOTE(sen) Write the component up to the slot
+                    output_memory.push_and_copy(
+                        component_in_hash.contents.ptr,
+                        size_between(component_in_hash.contents.ptr, slot.whole_literal.ptr) - 1,
+                    );
+
+                    // NOTE(sen) This is still raw input
+                    let component_used_contents_raw = {
+                        let base = unsafe {
+                            component_used
+                                .first_part
+                                .ptr
+                                .add(component_used.first_part.size)
+                        };
+                        let one_past_end = second_part.ptr;
+                        let size = one_past_end as usize - base as usize;
+                        String { ptr: base, size }
+                    };
+
+                    // NOTE(sen) Write the resolved contents of the used component
+                    // instead of the slot
+                    log_debug_line_sep();
+                    log_debug!(
+                        "starting resolution of the insides of component {}\n",
+                        component_in_hash.name
+                    );
+                    resolve_components(
+                        memory,
+                        output_memory,
+                        &component_used_contents_raw,
+                        components,
+                        input_dir,
+                    );
+                    log_debug!(
+                        "finished resolution of the insides of component {}\n",
+                        component_in_hash.name
+                    );
+                    log_debug_line_sep();
+
+                    // NOTE(sen) Write the component after the slot
+                    {
+                        let base = unsafe { slot.whole_literal.ptr.add(slot.whole_literal.size) };
+                        output_memory.push_and_copy(
+                            base,
+                            component_in_hash.contents.size
+                                - (size_between(component_in_hash.contents.ptr, base) - 1),
+                        );
+                    }
                 } else {
                     // TODO(sen) Error - second part present in component used
                     // but no slot to put it in
