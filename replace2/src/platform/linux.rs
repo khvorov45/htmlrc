@@ -31,6 +31,11 @@ pub(crate) fn write_stderr(text: &str) {
     };
 }
 
+pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
+    use libc::{write, STDERR_FILENO};
+    unsafe { write(STDERR_FILENO, ptr as *const _, size) };
+}
+
 pub(crate) fn exit() {
     unsafe {
         libc::exit(0);

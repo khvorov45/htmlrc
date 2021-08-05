@@ -265,19 +265,21 @@ const MEGABYTE: usize = KILOBYTE * 1024;
 
 pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     use platform::{
-        allocate_and_clear, create_dir_if_not_exists, exit, read_file, write_file, write_stderr,
-        write_stdout, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
+        allocate_and_clear, create_dir_if_not_exists, exit, read_file, write_file,
+        MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
     };
+
+    // TODO(sen) Timing
 
     let input_dir = input_dir.to_string();
     let input_file_name = input_file_name.to_string();
     let output_dir = output_dir.to_string();
 
-    debug_log_title("START");
-    debug_log!("Input directory: {}\n", &input_dir);
-    debug_log!("Input file: {}\n", &input_file_name);
-    debug_log!("output_dir: {}\n", &output_dir);
-    debug_log_line_sep();
+    log_debug_title("START");
+    log_debug!("Input directory: {}\n", &input_dir);
+    log_debug!("Input file: {}\n", &input_file_name);
+    log_debug!("output_dir: {}\n", &output_dir);
+    log_debug_line_sep();
 
     let (
         filepath_size,
@@ -306,16 +308,17 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
         )
     };
 
-    debug_log_title("MEMORY");
-    debug_log!("Filepath: {}B\n", filepath_size);
-    debug_log!("Components: {}KB\n", components_size / 1024);
-    debug_log!("Component names: {}KB\n", component_names_size / 1024);
-    debug_log!(
+    log_debug_title("MEMORY");
+    log_debug!("Filepath: {}B\n", filepath_size);
+    log_debug!("Components: {}KB\n", components_size / 1024);
+    log_debug!("Component names: {}KB\n", component_names_size / 1024);
+    log_debug!(
         "Component contents: {}MB\n",
         component_contents_size / 1024 / 1024
     );
-    debug_log!("IO: {}MB\n", io_size / 1024 / 1024);
-    debug_log!("Total: {}MB\n", total_memory_size / 1024 / 1024);
+    log_debug!("IO: {}MB\n", io_size / 1024 / 1024);
+    log_debug!("Total: {}MB\n", total_memory_size / 1024 / 1024);
+    log_debug_line_sep();
 
     if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
         let mut memory = {
@@ -351,8 +354,8 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
         let mut input_memory = memory.input.begin_temporary();
         if let Ok(input_string) = read_file(input_memory.arena(), &input_file_path) {
+            log_debug!("started resolution of input at {}\n", input_file_path);
             filepath_memory.end();
-
             let result = resolve_components(
                 &mut memory,
                 &mut memory.output,
@@ -360,6 +363,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 &mut components,
                 &input_dir,
             );
+            log_debug!("input resolution finished\n");
 
             debug_assert!(memory.filepath.temporary_count == 0);
             debug_assert!(memory.input.temporary_count == 1);
@@ -368,25 +372,31 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             let output_dir_path = String::from_s(filepath_memory.arena(), &output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 filepath_memory.reset();
+
                 let output_file_path = String::from_scs(
                     filepath_memory.arena(),
                     &output_dir,
                     PATH_SEP,
                     &input_file_name,
                 );
+
+                #[allow(clippy::branches_sharing_code)]
                 if write_file(&output_file_path, &result).is_ok() {
-                    write_stdout("Done\n");
+                    log_info!("Wrote output to {}\n", output_file_path);
                 } else {
-                    write_stderr("Failed to write to output file\n");
+                    log_error!("Failed to write to output file {}\n", output_file_path);
                 }
             } else {
-                write_stderr("Failed to create output directory\n");
+                log_error!("Failed to create output directory {}\n", output_dir);
             }
         } else {
-            write_stderr("Failed to read input\n");
+            log_error!("Failed to read input from {}\n", input_file_path);
         }
     } else {
-        write_stderr("Memory allocation failed\n");
+        log_error!(
+            "Memory allocation failed (size requested: {} bytes)\n",
+            total_memory_size
+        );
     }
 
     exit();
@@ -620,6 +630,8 @@ fn resolve_components(
                 }
             };
 
+            log_debug!("found component {}\n", component_used.name);
+
             // NOTE(sen) Find the component in cache or read it anew and store it in cache
             let component_in_hash = {
                 // TODO(sen) Replace with a hash-based lookup
@@ -636,8 +648,10 @@ fn resolve_components(
                 }
 
                 if let Some(component_looked_up) = lookup_result {
+                    log_debug!("found component {} in cache\n", component_used.name);
                     component_looked_up
                 } else {
+                    log_debug!("did not find component {} in cache\n", component_used.name);
                     // NOTE(sen) This should be zeroed since the areana is never overwritten
                     let new_component =
                         unsafe { &mut *memory.components.push_struct::<Component>() };
@@ -660,6 +674,7 @@ fn resolve_components(
                         &new_component.name,
                         &".html".to_string(),
                     );
+                    log_debug!("reading new component from {}\n", new_component_path);
                     let mut new_component_contents_raw_mem = memory.input.begin_temporary();
                     let new_component_contents_raw_result = platform::read_file(
                         new_component_contents_raw_mem.arena(),
@@ -667,6 +682,11 @@ fn resolve_components(
                     );
                     filepath_memory.end();
                     if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
+                        log_debug_line_sep();
+                        log_debug!(
+                            "Starting resolution of the new component {}\n",
+                            new_component.name
+                        );
                         // NOTE(sen) Resolve other components (but not slots) in the component string
                         new_component.contents = resolve_components(
                             memory,
@@ -676,6 +696,8 @@ fn resolve_components(
                             components,
                             input_dir,
                         );
+                        log_debug!("resolved new component {}\n", new_component.name);
+                        log_debug_line_sep();
 
                         // NOTE(sen) Find the slot (if present)
                         new_component.slot = None;
@@ -709,6 +731,10 @@ fn resolve_components(
                                                 component_contents_window.next.ptr,
                                             ),
                                         };
+                                        log_debug!(
+                                            "found slot in new component {}\n",
+                                            new_component.name
+                                        );
                                         new_component.slot = Some(Slot { whole_literal });
                                     } else {
                                         // TODO(sen) Error - found start but not end
@@ -737,6 +763,7 @@ fn resolve_components(
 
             // NOTE(sen) Resolve the component appropriately
             if let Some(second_part) = component_used.second_part {
+                log_debug!("component {} is a two-parter\n", component_in_hash.name);
                 // NOTE(sen) This is still raw input
                 let component_used_contents_raw = {
                     let base = unsafe {
@@ -752,6 +779,11 @@ fn resolve_components(
 
                 // NOTE(sen) Resolve components (but not slots) the string
                 // that's in-between the component parts
+                log_debug_line_sep();
+                log_debug!(
+                    "starting resolution of the insides of component {}\n",
+                    component_in_hash.name
+                );
                 let mut component_used_contents_processed_mem = memory.input.begin_temporary();
                 let component_used_contents_processed = resolve_components(
                     memory,
@@ -760,13 +792,19 @@ fn resolve_components(
                     components,
                     input_dir,
                 );
-                component_used_contents_processed_mem.end();
+                log_debug!(
+                    "finished resolution of the insides of component {}\n",
+                    component_in_hash.name
+                );
+                log_debug_line_sep();
 
                 // TODO(sen) Resolve component slots and write the resulting string to output
-                debug_line(&component_used_contents_processed);
-                debug_line(&component_in_hash.contents);
+                debug_line_raw(&component_used_contents_processed);
+                debug_line_raw(&component_in_hash.contents);
+
+                component_used_contents_processed_mem.end();
                 if let Some(slot) = &component_in_hash.slot {
-                    debug_line(&slot.whole_literal);
+                    debug_line_raw(&slot.whole_literal);
                 } else {
                     // TODO(sen) Error - second part present in component used
                     // but no slot to put it in
@@ -775,6 +813,10 @@ fn resolve_components(
                 if component_in_hash.slot.is_some() {
                     // TODO(sen) Error - slot present in definition but used as a one-parter
                 }
+                log_debug!(
+                    "component {} is a one-parter - copied contets\n",
+                    component_in_hash.name
+                );
                 // NOTE(sen) Replace the component with its contents
                 output_memory.push_and_copy(
                     component_in_hash.contents.ptr,
@@ -806,19 +848,7 @@ fn resolve_components(
 
 // SECTION Debug logging
 
-// TODO(sen) Make this go away for release builds
-
-fn debug_line(string: &String) {
-    debug_log!("#{}#\n", string);
-}
-
-fn debug_log_line_sep() {
-    debug_log!("--------------\n");
-}
-
-fn debug_log_title(string: &str) {
-    debug_log!("#### {} ####\n", string);
-}
+// TODO(sen) Make debug logging go away for release builds
 
 use core::fmt::Write;
 
@@ -849,14 +879,45 @@ impl<'a> Write for Log<'a> {
 }
 
 #[macro_export]
-macro_rules! debug_log {
-    ($($arg:tt)*) => {
+macro_rules! log {
+    ($out:expr, $($arg:tt)*) => {
         // TODO(sen) Better buffer handling here
-        let mut buf = [0; 40];
+        let mut buf = [0; 100];
         if ::core::write!(Log::new(&mut buf), $($arg)*).is_ok() {
-            $crate::platform::write_stdout_raw(buf.as_ptr(), buf.len());
+            $out(buf.as_ptr(), buf.len());
         } else {
             $crate::platform::write_stderr("couldn't write to buffer\n");
         }
     };
+}
+
+#[macro_export]
+macro_rules! log_debug {
+    ($($arg:tt)*) => (log!(crate::platform::write_stdout_raw, $($arg)*))
+}
+
+#[macro_export]
+macro_rules! log_error {
+    ($($arg:tt)*) => (log!(crate::platform::write_stderr_raw, $($arg)*))
+}
+
+#[macro_export]
+macro_rules! log_info {
+    ($($arg:tt)*) => (log!(crate::platform::write_stdout_raw, $($arg)*))
+}
+
+fn debug_line_raw(string: &String) {
+    log_debug_line_sep();
+    platform::write_stdout("#");
+    platform::write_stdout_raw(string.ptr, string.size);
+    platform::write_stdout("#\n");
+    log_debug_line_sep();
+}
+
+fn log_debug_line_sep() {
+    log_debug!("--------------\n");
+}
+
+fn log_debug_title(string: &str) {
+    log_debug!("#### {} ####\n", string);
 }
