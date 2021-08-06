@@ -421,6 +421,72 @@ struct ComponentUsed {
     // TODO(sen) Implement params
 }
 
+struct Tokeniser {
+    /// Points at the next unprocessed byte
+    this: *const u8,
+    size_total: usize,
+    size_processed: usize,
+}
+
+impl Tokeniser {
+    fn new(string: &String) -> Tokeniser {
+        Tokeniser {
+            this: string.ptr,
+            size_total: string.size,
+            size_processed: 0,
+        }
+    }
+
+    fn next(&mut self) -> Option<*const u8> {
+        if self.size_total > self.size_processed {
+            let result = self.this;
+            self.this = unsafe { self.this.add(1) };
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    fn peek(&mut self) -> Option<*const u8> {
+        if self.size_total > self.size_processed {
+            Some(self.this)
+        } else {
+            None
+        }
+    }
+
+    fn next_token(&mut self) -> Option<Token> {
+        let base = self.next()?;
+        let mut this = base;
+        let mut size = 1;
+        loop {
+            let this_value = unsafe { *this };
+            if this_value == b'<' {
+                if let Some(next) = self.peek() {
+                    let next_value = unsafe { *next };
+                    if next_value.is_ascii_uppercase() {
+                        let name_start = next;
+                        self.next();
+                    }
+                }
+            }
+            if let Some(next) = self.next() {
+                size += 1;
+                this = next;
+            } else {
+                break;
+            }
+        }
+        Some(Token::String(String { ptr: base, size }))
+    }
+}
+
+enum Token {
+    String(String),
+    //ComponentOpen(ComponentOpen),
+    Slot(Slot),
+}
+
 struct ByteWindow2 {
     last_byte: *const u8,
     this: Byte,
