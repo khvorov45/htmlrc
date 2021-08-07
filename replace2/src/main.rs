@@ -20,9 +20,4 @@ pub extern "C" fn mainCRTStartup() -> ! {
     replace2::run("input", "page-plain.html", "build");
     #[allow(clippy::empty_loop)]
     loop {}
-    //replace2::run("input", "page-plain.html", "build");
-    //0
 }
-
-#[no_mangle]
-pub static _fltused: i32 = 0x9875;

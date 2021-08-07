@@ -1,14 +1,19 @@
 use crate::{Error, MemoryArena, Result, String};
 
-pub(crate) const PATH_SEP: char = '/';
-pub(crate) const MAX_PATH_BYTES: usize = 4096;
+pub(crate) const PATH_SEP: char = '\\';
+/// https://docs.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
+pub(crate) const MAX_PATH_BYTES: usize = 260;
+/// https://docs.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
 pub(crate) const MAX_FILENAME_BYTES: usize = 256;
 
 enum Void {}
+/// https://docs.microsoft.com/en-us/windows/console/getstdhandle
 const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
 
 extern "C" {
+    /// https://docs.microsoft.com/en-us/windows/console/getstdhandle
     fn GetStdHandle(handle: u32) -> *mut Void;
+    /// https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-writefileex
     fn WriteFileEx(
         file: *mut Void,
         buffer: *const Void,
@@ -19,7 +24,7 @@ extern "C" {
 }
 
 pub(crate) fn write_stdout(text: &str) {
-    /*unsafe {
+    unsafe {
         let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
         let mut written = 0;
         WriteFileEx(
@@ -29,11 +34,11 @@ pub(crate) fn write_stdout(text: &str) {
             &mut written,
             core::ptr::null_mut(),
         )
-    };*/
+    };
 }
 
 pub(crate) fn write_stdout_raw(ptr: *const u8, size: usize) {
-    /* unsafe {
+    unsafe {
         let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
         let mut written = 0;
         WriteFileEx(
@@ -43,13 +48,14 @@ pub(crate) fn write_stdout_raw(ptr: *const u8, size: usize) {
             &mut written,
             core::ptr::null_mut(),
         )
-    };*/
+    };
 }
 
+/// https://docs.microsoft.com/en-us/windows/console/getstdhandle
 const STD_ERROR_HANDLE: u32 = -12i32 as u32;
 
 pub(crate) fn write_stderr(text: &str) {
-    /*unsafe {
+    unsafe {
         let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
         let mut written = 0;
         WriteFileEx(
@@ -59,11 +65,11 @@ pub(crate) fn write_stderr(text: &str) {
             &mut written,
             core::ptr::null_mut(),
         )
-    };*/
+    };
 }
 
 pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
-    /*unsafe {
+    unsafe {
         let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
         let mut written = 0;
         WriteFileEx(
@@ -73,10 +79,11 @@ pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
             &mut written,
             core::ptr::null_mut(),
         )
-    };*/
+    };
 }
 
 extern "C" {
+    /// https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-exitprocess
     fn ExitProcess(code: u32);
 }
 
