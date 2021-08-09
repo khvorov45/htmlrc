@@ -438,9 +438,10 @@ impl Tokeniser {
     }
 
     fn next(&mut self) -> Option<*const u8> {
-        if self.size_total > self.size_processed {
+        if self.size_processed < self.size_total {
             let result = self.this;
             self.this = unsafe { self.this.add(1) };
+            self.size_processed += 1;
             Some(result)
         } else {
             None
@@ -448,7 +449,7 @@ impl Tokeniser {
     }
 
     fn peek(&mut self) -> Option<*const u8> {
-        if self.size_total > self.size_processed {
+        if self.size_processed < self.size_total {
             Some(self.this)
         } else {
             None
@@ -457,34 +458,30 @@ impl Tokeniser {
 
     fn next_token(&mut self) -> Option<Token> {
         let base = self.next()?;
-        let mut this = base;
         let mut size = 1;
-        loop {
-            let this_value = unsafe { *this };
-            if this_value == b'<' {
-                if let Some(next) = self.peek() {
-                    let next_value = unsafe { *next };
-                    if next_value.is_ascii_uppercase() {
-                        let name_start = next;
-                        self.next();
-                    }
+        let base_value = unsafe { *base };
+        if base_value == b'<' {
+            // TODO(sen) This may be either ComponentOpen or ComponentClose or slot
+            None
+        } else {
+            // NOTE(sen) This is a plain string
+            while let Some(ptr) = self.peek() {
+                if unsafe { *ptr } == b'<' {
+                    break;
+                } else {
+                    size += 1;
+                    self.next();
                 }
             }
-            if let Some(next) = self.next() {
-                size += 1;
-                this = next;
-            } else {
-                break;
-            }
+            Some(Token::String(String { ptr: base, size }))
         }
-        Some(Token::String(String { ptr: base, size }))
     }
 }
 
 enum Token {
     String(String),
     //ComponentOpen(ComponentOpen),
-    Slot(Slot),
+    //Slot(Slot),
 }
 
 struct ByteWindow2 {
@@ -601,6 +598,18 @@ fn resolve(
     // NOTE(sen) Output preparation, write final resolved string to `output_base`
     let output_used_before = output_memory.used;
     let output_base = unsafe { output_memory.base.add(output_used_before) };
+
+    // TODO(sen) Finish this loop
+    let mut tokeniser = Tokeniser::new(string);
+    while let Some(token) = tokeniser.next_token() {
+        match token {
+            Token::String(string) => {
+                log_debug!("===STRING TOKEN START===\n");
+                debug_line_raw(&string);
+                log_debug!("---string token end---\n");
+            }
+        }
+    }
 
     // NOTE(sen) Component resolution
     if let Some(mut window) = ByteWindow2::new(string) {
