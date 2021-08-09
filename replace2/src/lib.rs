@@ -432,29 +432,56 @@ struct ComponentUsed {
 }
 
 struct Tokeniser {
-    /// Points at the next unprocessed byte
     this: *const u8,
-    size_total: usize,
-    size_processed: usize,
+    this_index: usize,
+    last_index: usize,
 }
 
 impl Tokeniser {
     fn new(string: &String) -> Tokeniser {
+        debug_assert!(string.size > 0);
         Tokeniser {
             this: string.ptr,
-            size_total: string.size,
-            size_processed: 0,
+            this_index: 0,
+            last_index: string.size - 1,
+        }
+    }
+
+    fn this_value(&self) -> u8 {
+        unsafe { *self.this }
+    }
+
+    fn peek(&self, offset: usize) -> Option<*const u8> {
+        if self.this_index + offset <= self.last_index {
+            Some(unsafe { self.this.add(offset) })
+        } else {
+            None
         }
     }
 
     fn advance(&mut self, offset: usize) -> bool {
-        if self.size_total - self.size_processed >= offset {
-            self.this = unsafe { self.this.add(offset) };
-            self.size_processed += offset;
+        if let Some(ptr) = self.peek(offset) {
+            self.this = ptr;
+            self.this_index += offset;
             true
         } else {
             false
         }
+    }
+
+    /// Counts positions where the predicate fails starting from the current position
+    fn advance_until(&mut self, predicate: fn(&Tokeniser) -> bool) -> usize {
+        let mut counter = 0;
+        loop {
+            if predicate(self) {
+                break;
+            }
+            counter += 1;
+            if !self.advance(1) {
+                break;
+            }
+        }
+        counter
     }
 
     fn next_token(&mut self) -> Option<Token> {
@@ -462,35 +489,28 @@ impl Tokeniser {
         match token_type {
             TokenType::String => {
                 let base = self.this;
-                let mut size = 0;
-                while self.current_token() == Some(TokenType::String) && self.advance(1) {
-                    size += 1;
-                }
+                let size = self.advance_until(|tokeniser| {
+                    tokeniser.current_token() != Some(TokenType::String)
+                });
                 Some(Token::String(String { ptr: base, size }))
             }
             TokenType::ComponentOpen => {
                 let literal_base = self.this;
                 self.advance(1);
                 let name_base = self.this;
-                let mut name_size = 0;
-                let mut current_char = unsafe { *self.this };
-                while current_char.is_ascii_alphanumeric() && self.advance(1) {
-                    current_char = unsafe { *self.this };
-                    name_size += 1;
-                }
+                let name_size =
+                    self.advance_until(|tokeniser| !tokeniser.this_value().is_ascii_alphanumeric());
                 let name = String {
                     ptr: name_base,
                     size: name_size,
                 };
-                let mut literal_size = name_size + 2;
-                while current_char.is_ascii_whitespace() && self.advance(1) {
-                    current_char = unsafe { *self.this };
-                    literal_size += 1;
-                }
-                if current_char == b'>' {
+                let n_whitespace =
+                    self.advance_until(|tokeniser| !tokeniser.this_value().is_ascii_whitespace());
+                let literal_size_so_far = 1 + name_size + n_whitespace;
+                if self.this_value() == b'>' {
                     let literal = String {
                         ptr: literal_base,
-                        size: literal_size,
+                        size: literal_size_so_far + 1,
                     };
                     self.advance(1);
                     Some(Token::ComponentOpen(ComponentOpen {
@@ -498,24 +518,19 @@ impl Tokeniser {
                         name,
                         two_part: true,
                     }))
-                } else if current_char == b'/' {
-                    if self.advance(1) {
-                        current_char = unsafe { *self.this };
-                        if current_char == b'>' {
-                            let literal = String {
-                                ptr: literal_base,
-                                size: literal_size + 1,
-                            };
-                            self.advance(1);
-                            Some(Token::ComponentOpen(ComponentOpen {
-                                literal,
-                                name,
-                                two_part: false,
-                            }))
-                        } else {
-                            // TODO(sen) Error - unexpected opening
-                            None
-                        }
+                } else if self.this_value() == b'/' {
+                    self.advance(1);
+                    if self.this_value() == b'>' {
+                        let literal = String {
+                            ptr: literal_base,
+                            size: literal_size_so_far + 2,
+                        };
+                        self.advance(1);
+                        Some(Token::ComponentOpen(ComponentOpen {
+                            literal,
+                            name,
+                            two_part: false,
+                        }))
                     } else {
                         // TODO(sen) Error - unexpected opening
                         None
@@ -544,34 +559,21 @@ impl Tokeniser {
         }
     }
 
-    fn peek(&self, offset: usize) -> Option<*const u8> {
-        if self.size_processed < self.size_total - offset {
-            Some(unsafe { self.this.add(offset) })
+    fn read_name_from(&self, offset: usize) -> Option<String> {
+        let base = self.peek(offset)?;
+        let mut ptr = base;
+        let mut value = unsafe { *base };
+        let mut size = 0;
+        if value.is_ascii_alphabetic() {
+            while value.is_ascii_alphanumeric() {
+                size += 1;
+                ptr = unsafe { ptr.add(1) };
+                value = unsafe { *ptr };
+            }
+            Some(String { ptr: base, size })
         } else {
             None
         }
-    }
-
-    fn read_name_from(&self, base: *const u8) -> Option<String> {
-        let mut result = None;
-        let og_base = unsafe { self.this.sub(self.size_processed) };
-        let one_past_last = unsafe { og_base.add(self.size_total) };
-        if base as usize >= og_base as usize && (base as usize) < (one_past_last as usize) {
-            let mut size_to_go = size_between(base, one_past_last) - 1;
-            let mut ptr = base;
-            let mut value = unsafe { *base };
-            if value.is_ascii_alphabetic() {
-                let mut size = 0;
-                while value.is_ascii_alphanumeric() && size_to_go > 0 {
-                    ptr = unsafe { ptr.add(1) };
-                    value = unsafe { *ptr };
-                    size += 1;
-                    size_to_go -= 1;
-                }
-                result = Some(String { ptr: base, size })
-            }
-        }
-        result
     }
 
     fn current_token(&self) -> Option<TokenType> {
@@ -588,13 +590,13 @@ impl Tokeniser {
                         let value2 = unsafe { *ptr2 };
                         if value2.is_ascii_uppercase() {
                             result = TokenType::ComponentClose;
-                        } else if let Some(name) = self.read_name_from(ptr2) {
+                        } else if let Some(name) = self.read_name_from(2) {
                             if name == "slot" {
                                 result = TokenType::SlotClose;
                             }
                         }
                     }
-                } else if let Some(name) = self.read_name_from(ptr1) {
+                } else if let Some(name) = self.read_name_from(1) {
                     let target_name = "slot";
                     if name == target_name {
                         let mut extra_offset = 0;
@@ -768,18 +770,20 @@ fn resolve(
     let output_base = unsafe { output_memory.base.add(output_used_before) };
 
     // TODO(sen) Finish this loop
-    let mut tokeniser = Tokeniser::new(string);
-    while let Some(token) = tokeniser.next_token() {
-        match token {
-            Token::String(string) => {
-                debug_line_raw(&string);
-                output_memory.push_and_copy(string.ptr, string.size);
-            }
-            Token::ComponentOpen(component_open) => {
-                debug_line_raw(&component_open.literal);
-                debug_line_raw(&component_open.name);
-            }
-        };
+    if string.size > 0 {
+        let mut tokeniser = Tokeniser::new(string);
+        while let Some(token) = tokeniser.next_token() {
+            match token {
+                Token::String(string) => {
+                    debug_line_raw(&string);
+                    output_memory.push_and_copy(string.ptr, string.size);
+                }
+                Token::ComponentOpen(component_open) => {
+                    debug_line_raw(&component_open.literal);
+                    debug_line_raw(&component_open.name);
+                }
+            };
+        }
     }
 
     /*
