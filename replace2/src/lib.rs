@@ -447,22 +447,83 @@ impl Tokeniser {
         }
     }
 
+    fn advance(&mut self, offset: usize) -> bool {
+        if self.size_total - self.size_processed >= offset {
+            self.this = unsafe { self.this.add(offset) };
+            self.size_processed += offset;
+            true
+        } else {
+            false
+        }
+    }
+
     fn next_token(&mut self) -> Option<Token> {
         let token_type = self.current_token()?;
         match token_type {
             TokenType::String => {
                 let base = self.this;
                 let mut size = 0;
-                while self.current_token() == Some(TokenType::String) {
+                while self.current_token() == Some(TokenType::String) && self.advance(1) {
                     size += 1;
-                    self.this = unsafe { self.this.add(1) };
-                    self.size_processed += 1;
                 }
                 Some(Token::String(String { ptr: base, size }))
             }
             TokenType::ComponentOpen => {
-                // TODO(sen) Advance past and collect relevant information
-                None
+                let literal_base = self.this;
+                self.advance(1);
+                let name_base = self.this;
+                let mut name_size = 0;
+                let mut current_char = unsafe { *self.this };
+                while current_char.is_ascii_alphanumeric() && self.advance(1) {
+                    current_char = unsafe { *self.this };
+                    name_size += 1;
+                }
+                let name = String {
+                    ptr: name_base,
+                    size: name_size,
+                };
+                let mut literal_size = name_size + 2;
+                while current_char.is_ascii_whitespace() && self.advance(1) {
+                    current_char = unsafe { *self.this };
+                    literal_size += 1;
+                }
+                if current_char == b'>' {
+                    let literal = String {
+                        ptr: literal_base,
+                        size: literal_size,
+                    };
+                    self.advance(1);
+                    Some(Token::ComponentOpen(ComponentOpen {
+                        literal,
+                        name,
+                        two_part: true,
+                    }))
+                } else if current_char == b'/' {
+                    if self.advance(1) {
+                        current_char = unsafe { *self.this };
+                        if current_char == b'>' {
+                            let literal = String {
+                                ptr: literal_base,
+                                size: literal_size + 1,
+                            };
+                            self.advance(1);
+                            Some(Token::ComponentOpen(ComponentOpen {
+                                literal,
+                                name,
+                                two_part: false,
+                            }))
+                        } else {
+                            // TODO(sen) Error - unexpected opening
+                            None
+                        }
+                    } else {
+                        // TODO(sen) Error - unexpected opening
+                        None
+                    }
+                } else {
+                    // TODO(sen) Error - unexpected opening
+                    None
+                }
             }
             TokenType::ComponentClose => {
                 // TODO(sen) Advance past and collect relevant information
@@ -582,6 +643,13 @@ enum TokenType {
 
 enum Token {
     String(String),
+    ComponentOpen(ComponentOpen),
+}
+
+struct ComponentOpen {
+    literal: String,
+    name: String,
+    two_part: bool,
 }
 
 struct ByteWindow2 {
@@ -704,7 +772,12 @@ fn resolve(
     while let Some(token) = tokeniser.next_token() {
         match token {
             Token::String(string) => {
+                debug_line_raw(&string);
                 output_memory.push_and_copy(string.ptr, string.size);
+            }
+            Token::ComponentOpen(component_open) => {
+                debug_line_raw(&component_open.literal);
+                debug_line_raw(&component_open.name);
             }
         };
     }
