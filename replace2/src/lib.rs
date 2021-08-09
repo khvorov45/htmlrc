@@ -203,6 +203,16 @@ impl core::cmp::PartialEq for String {
     }
 }
 
+impl core::cmp::PartialEq<&str> for String {
+    fn eq(&self, other: &&str) -> bool {
+        let other = String {
+            ptr: other.as_ptr(),
+            size: other.as_bytes().len(),
+        };
+        self == &other
+    }
+}
+
 impl core::fmt::Display for String {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let source = self.ptr;
@@ -437,51 +447,141 @@ impl Tokeniser {
         }
     }
 
-    fn next(&mut self) -> Option<*const u8> {
-        if self.size_processed < self.size_total {
-            let result = self.this;
-            self.this = unsafe { self.this.add(1) };
-            self.size_processed += 1;
-            Some(result)
-        } else {
-            None
-        }
-    }
-
-    fn peek(&mut self) -> Option<*const u8> {
-        if self.size_processed < self.size_total {
-            Some(self.this)
-        } else {
-            None
-        }
-    }
-
     fn next_token(&mut self) -> Option<Token> {
-        let base = self.next()?;
-        let mut size = 1;
-        let base_value = unsafe { *base };
-        if base_value == b'<' {
-            // TODO(sen) This may be either ComponentOpen or ComponentClose or slot
-            None
-        } else {
-            // NOTE(sen) This is a plain string
-            while let Some(ptr) = self.peek() {
-                if unsafe { *ptr } == b'<' {
-                    break;
-                } else {
+        let token_type = self.current_token()?;
+        match token_type {
+            TokenType::String => {
+                let base = self.this;
+                let mut size = 0;
+                while self.current_token() == Some(TokenType::String) {
                     size += 1;
-                    self.next();
+                    self.this = unsafe { self.this.add(1) };
+                    self.size_processed += 1;
+                }
+                Some(Token::String(String { ptr: base, size }))
+            }
+            TokenType::ComponentOpen => {
+                // TODO(sen) Advance past and collect relevant information
+                None
+            }
+            TokenType::ComponentClose => {
+                // TODO(sen) Advance past and collect relevant information
+                None
+            }
+            TokenType::Slot => {
+                // TODO(sen) Advance past and collect relevant information
+                None
+            }
+            TokenType::SlotOpen => {
+                // TODO(sen) Advance past and collect relevant information
+                None
+            }
+            TokenType::SlotClose => {
+                // TODO(sen) Advance past and collect relevant information
+                None
+            }
+        }
+    }
+
+    fn peek(&self, offset: usize) -> Option<*const u8> {
+        if self.size_processed < self.size_total - offset {
+            Some(unsafe { self.this.add(offset) })
+        } else {
+            None
+        }
+    }
+
+    fn read_name_from(&self, base: *const u8) -> Option<String> {
+        let mut result = None;
+        let og_base = unsafe { self.this.sub(self.size_processed) };
+        let one_past_last = unsafe { og_base.add(self.size_total) };
+        if base as usize >= og_base as usize && (base as usize) < (one_past_last as usize) {
+            let mut size_to_go = size_between(base, one_past_last) - 1;
+            let mut ptr = base;
+            let mut value = unsafe { *base };
+            if value.is_ascii_alphabetic() {
+                let mut size = 0;
+                while value.is_ascii_alphanumeric() && size_to_go > 0 {
+                    ptr = unsafe { ptr.add(1) };
+                    value = unsafe { *ptr };
+                    size += 1;
+                    size_to_go -= 1;
+                }
+                result = Some(String { ptr: base, size })
+            }
+        }
+        result
+    }
+
+    fn current_token(&self) -> Option<TokenType> {
+        let ptr0 = self.peek(0)?;
+        let value0 = unsafe { *ptr0 };
+        let mut result = TokenType::String;
+        if value0 == b'<' {
+            if let Some(ptr1) = self.peek(1) {
+                let value1 = unsafe { *ptr1 };
+                if value1.is_ascii_uppercase() {
+                    result = TokenType::ComponentOpen;
+                } else if value1 == b'/' {
+                    if let Some(ptr2) = self.peek(2) {
+                        let value2 = unsafe { *ptr2 };
+                        if value2.is_ascii_uppercase() {
+                            result = TokenType::ComponentClose;
+                        } else if let Some(name) = self.read_name_from(ptr2) {
+                            if name == "slot" {
+                                result = TokenType::SlotClose;
+                            }
+                        }
+                    }
+                } else if let Some(name) = self.read_name_from(ptr1) {
+                    let target_name = "slot";
+                    if name == target_name {
+                        let mut extra_offset = 0;
+                        while let Some(after_slot_ptr) =
+                            self.peek(1 + target_name.as_bytes().len() + extra_offset)
+                        {
+                            let after_slot_value = unsafe { *after_slot_ptr };
+                            if after_slot_value == b'>' {
+                                result = TokenType::SlotOpen;
+                                break;
+                            } else if after_slot_value == b'/' {
+                                if let Some(after_slot_ptr1) =
+                                    self.peek(1 + target_name.as_bytes().len() + extra_offset + 1)
+                                {
+                                    let after_slot_value1 = unsafe { *after_slot_ptr1 };
+                                    if after_slot_value1 == b'>' {
+                                        result = TokenType::Slot
+                                    }
+                                }
+                                break;
+                            } else if after_slot_value.is_ascii_whitespace()
+                                || after_slot_value.is_ascii_alphanumeric()
+                            {
+                                extra_offset += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
-            Some(Token::String(String { ptr: base, size }))
         }
+        Some(result)
     }
+}
+
+#[derive(PartialEq)]
+enum TokenType {
+    String,
+    ComponentOpen,
+    ComponentClose,
+    Slot,
+    SlotOpen,
+    SlotClose,
 }
 
 enum Token {
     String(String),
-    //ComponentOpen(ComponentOpen),
-    //Slot(Slot),
 }
 
 struct ByteWindow2 {
@@ -604,13 +704,12 @@ fn resolve(
     while let Some(token) = tokeniser.next_token() {
         match token {
             Token::String(string) => {
-                log_debug!("===STRING TOKEN START===\n");
-                debug_line_raw(&string);
-                log_debug!("---string token end---\n");
+                output_memory.push_and_copy(string.ptr, string.size);
             }
-        }
+        };
     }
 
+    /*
     // NOTE(sen) Component resolution
     if let Some(mut window) = ByteWindow2::new(string) {
         // NOTE(sen) If there is no custom component, use this to copy input to output
@@ -934,7 +1033,7 @@ fn resolve(
     } else {
         // NOTE(sen) Couldn't create window - copy the whole input string
         output_memory.push_and_copy(string.ptr, string.size);
-    }
+    }*/
 
     // NOTE(sen) All output should be in the output arena at this point
     #[allow(clippy::let_and_return)]
