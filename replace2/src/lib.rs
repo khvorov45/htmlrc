@@ -83,7 +83,10 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             }
         };
 
-        let mut components = Components { first: None };
+        let mut components = Components {
+            first: core::ptr::null(),
+            count: 0,
+        };
 
         let mut filepath_memory = memory.filepath.begin_temporary();
         let input_file_path = String::from_scs(
@@ -167,7 +170,7 @@ impl<T: Copy> PointerDeref<T> for *mut T {
 trait ConstPointer<T> {
     fn plus(&self, offset: usize) -> Self;
     fn minus(&self, offset: usize) -> Self;
-    fn as_ref(&self) -> &T;
+    fn get_ref(&self) -> &T;
 }
 
 impl<T> ConstPointer<T> for *const T {
@@ -177,7 +180,7 @@ impl<T> ConstPointer<T> for *const T {
     fn minus(&self, offset: usize) -> Self {
         unsafe { self.sub(offset) }
     }
-    fn as_ref(&self) -> &T {
+    fn get_ref(&self) -> &T {
         unsafe { &**self }
     }
 }
@@ -189,7 +192,7 @@ impl<T> ConstPointer<T> for *mut T {
     fn minus(&self, offset: usize) -> Self {
         unsafe { self.sub(offset) }
     }
-    fn as_ref(&self) -> &T {
+    fn get_ref(&self) -> &T {
         unsafe { &**self }
     }
 }
@@ -443,14 +446,14 @@ fn char_is_valid(ch: char) -> bool {
 
 struct Components {
     // TODO(sen) Hash-based lookups
-    first: Option<*const Component>,
+    first: *const Component,
+    count: usize,
 }
 
 struct Component {
     name: String,
     /// Leading and trailing whitespaces are removed
     contents: String,
-    next: Option<*const Component>,
 }
 
 struct Tokeniser {
@@ -647,23 +650,20 @@ fn resolve(
                     let component_in_hash = {
                         // TODO(sen) Replace with a hash-based lookup
                         let mut lookup_result = None;
-                        let mut component_in_hash = components.first;
-                        while let Some(component_in_hash_ptr) = component_in_hash {
-                            let component_in_hash_value = unsafe { &*component_in_hash_ptr };
+                        for component_index in 0..components.count {
+                            let component_in_hash = components.first.plus(component_index);
+                            let component_in_hash_value = unsafe { &*component_in_hash };
                             if component_in_hash_value.name == component_tag.name {
                                 lookup_result = Some(component_in_hash_value);
                                 break;
-                            } else {
-                                component_in_hash = component_in_hash_value.next;
                             }
                         }
-
                         if let Some(component_looked_up) = lookup_result {
                             log_debug!("found component {} in cache\n", component_tag.name);
                             component_looked_up
                         } else {
                             log_debug!("did not find component {} in cache\n", component_tag.name);
-                            // NOTE(sen) This should be zeroed since the areana is never overwritten
+                            // NOTE(sen) This should be zeroed since the arena is never overwritten
                             let new_component =
                                 unsafe { &mut *memory.components.push_struct::<Component>() };
 
@@ -699,9 +699,11 @@ fn resolve(
                                 // TODO(sen) Error - component used but not found
                             }
 
-                            // NOTE(sen) Append to the list
-                            new_component.next = components.first;
-                            components.first = Some(new_component);
+                            if components.count == 0 {
+                                components.first = new_component;
+                            }
+                            components.count += 1;
+
                             new_component
                         }
                     };
