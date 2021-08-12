@@ -500,6 +500,12 @@ impl Tokeniser {
             self.this = ptr;
             self.this_index += offset;
             true
+        } else if self.this_index == self.last_index {
+            // NOTE(sen) This should make it impossible to peek anything
+            // including the current pointer
+            self.this = self.this.plus(1);
+            self.this_index = self.last_index + 1;
+            false
         } else {
             false
         }
@@ -530,7 +536,7 @@ impl Tokeniser {
                 });
                 Some(Token::String(String { ptr: base, size }))
             }
-            TokenType::ComponentOpen => {
+            TokenType::ComponentTag => {
                 let literal_base = self.this;
                 self.advance(1);
                 let name_base = self.this;
@@ -543,18 +549,7 @@ impl Tokeniser {
                 let n_whitespace =
                     self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
                 let literal_size_so_far = 1 + name_size + n_whitespace;
-                if self.this.deref() == b'>' {
-                    let literal = String {
-                        ptr: literal_base,
-                        size: literal_size_so_far + 1,
-                    };
-                    self.advance(1);
-                    Some(Token::ComponentOpen(ComponentOpen {
-                        literal,
-                        name,
-                        two_part: true,
-                    }))
-                } else if self.this.deref() == b'/' {
+                if self.this.deref() == b'/' {
                     self.advance(1);
                     if self.this.deref() == b'>' {
                         let literal = String {
@@ -562,11 +557,7 @@ impl Tokeniser {
                             size: literal_size_so_far + 2,
                         };
                         self.advance(1);
-                        Some(Token::ComponentOpen(ComponentOpen {
-                            literal,
-                            name,
-                            two_part: false,
-                        }))
+                        Some(Token::ComponentTag(ComponentTag { literal, name }))
                     } else {
                         // TODO(sen) Error - unexpected opening
                         None
@@ -575,10 +566,6 @@ impl Tokeniser {
                     // TODO(sen) Error - unexpected opening
                     None
                 }
-            }
-            TokenType::ComponentClose => {
-                // TODO(sen) Advance past and collect relevant information
-                None
             }
         }
     }
@@ -591,14 +578,7 @@ impl Tokeniser {
             if let Some(ptr1) = self.peek(1) {
                 let value1 = ptr1.deref();
                 if value1.is_ascii_uppercase() {
-                    result = TokenType::ComponentOpen;
-                } else if value1 == b'/' {
-                    if let Some(ptr2) = self.peek(2) {
-                        let value2 = ptr2.deref();
-                        if value2.is_ascii_uppercase() {
-                            result = TokenType::ComponentClose;
-                        }
-                    }
+                    result = TokenType::ComponentTag;
                 }
             }
         }
@@ -609,19 +589,18 @@ impl Tokeniser {
 #[derive(PartialEq)]
 enum TokenType {
     String,
-    ComponentOpen,
-    ComponentClose,
+    ComponentTag,
 }
 
 enum Token {
     String(String),
-    ComponentOpen(ComponentOpen),
+    ComponentTag(ComponentTag),
 }
 
-struct ComponentOpen {
+struct ComponentTag {
     literal: String,
     name: String,
-    two_part: bool,
+    // TODO(sen) Implement arguments
 }
 
 struct ByteWindow2 {
@@ -716,13 +695,9 @@ struct Byte {
     value: u8,
 }
 
-// TODO(sen) Rework this to handle components and slots in a cleaner way by
+// TODO(sen) Rework this to handle components in a cleaner way by
 // reading the input as a token stream where the tokens are plain strings to be
-// pasted, plain components whose (resolved) contents need to be pasted or
-// two-parter components whose contents need to be pasted. For the two-parter
-// components, the resolution has the additional step of filling slots, (slot
-// being one of the token types but it's special since we need external
-// information to resolve it)
+// pasted or components whose (resolved) contents need to be pasted
 fn resolve(
     memory: *mut Memory,
     output_memory: *mut MemoryArena,
@@ -748,10 +723,9 @@ fn resolve(
                     debug_line_raw(&string);
                     output_memory.push_and_copy(string.ptr, string.size);
                 }
-                Token::ComponentOpen(component_open) => {
+                Token::ComponentTag(component_open) => {
                     debug_line_raw(&component_open.literal);
                     debug_line_raw(&component_open.name);
-                    log_debug!("two-part: {}\n", &component_open.two_part);
                 }
             };
         }
