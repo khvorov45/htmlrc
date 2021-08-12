@@ -103,7 +103,6 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 &input_string,
                 &mut components,
                 &input_dir,
-                None,
             );
             log_debug!("input resolution finished\n");
 
@@ -537,7 +536,6 @@ impl Tokeniser {
                 Some(Token::String(String { ptr: base, size }))
             }
             TokenType::ComponentTag => {
-                let literal_base = self.this;
                 self.advance(1);
                 let name_base = self.this;
                 let name_size =
@@ -546,18 +544,12 @@ impl Tokeniser {
                     ptr: name_base,
                     size: name_size,
                 };
-                let n_whitespace =
-                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
-                let literal_size_so_far = 1 + name_size + n_whitespace;
+                self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
                 if self.this.deref() == b'/' {
                     self.advance(1);
                     if self.this.deref() == b'>' {
-                        let literal = String {
-                            ptr: literal_base,
-                            size: literal_size_so_far + 2,
-                        };
                         self.advance(1);
-                        Some(Token::ComponentTag(ComponentTag { literal, name }))
+                        Some(Token::ComponentTag(ComponentTag { name }))
                     } else {
                         // TODO(sen) Error - unexpected opening
                         None
@@ -598,101 +590,8 @@ enum Token {
 }
 
 struct ComponentTag {
-    literal: String,
     name: String,
     // TODO(sen) Implement arguments
-}
-
-struct ByteWindow2 {
-    last_byte: *const u8,
-    this: Byte,
-    /// Always one byte away from `this`
-    next: Byte,
-}
-
-impl ByteWindow2 {
-    fn new(string: &String) -> Option<ByteWindow2> {
-        if string.size >= 2 {
-            let second_ptr = string.ptr.plus(1);
-            Some(ByteWindow2 {
-                last_byte: string.ptr.plus(string.size - 1),
-                this: Byte {
-                    ptr: string.ptr,
-                    value: string.ptr.deref(),
-                },
-                next: Byte {
-                    ptr: second_ptr,
-                    value: second_ptr.deref(),
-                },
-            })
-        } else {
-            None
-        }
-    }
-
-    fn advance_one(&mut self) -> bool {
-        if self.can_advance() {
-            self.this = self.next;
-            let next_ptr = self.next.ptr.plus(1);
-            self.next = Byte {
-                ptr: next_ptr,
-                value: next_ptr.deref(),
-            };
-            true
-        } else {
-            false
-        }
-    }
-
-    fn skip_whitespace(&mut self) -> usize {
-        let mut counter = 0;
-        while self.this.value.is_ascii_whitespace() && self.can_advance() {
-            self.advance_one();
-            counter += 1;
-        }
-        counter
-    }
-
-    fn advance(&mut self, count: usize) -> usize {
-        let mut counter = 0;
-        for _ in 0..count {
-            if !self.advance_one() {
-                break;
-            }
-            counter += 1;
-        }
-        counter
-    }
-
-    /// Will advance just past the name
-    fn next_name(&mut self) -> Option<String> {
-        let mut result = None;
-        self.skip_whitespace();
-        if self.this.value.is_ascii_alphabetic() {
-            let base = self.this.ptr;
-            let mut size = 0;
-            while self.this.value.is_ascii_alphanumeric() && self.can_advance() {
-                size += 1;
-                self.advance_one();
-            }
-            result = Some(String { ptr: base, size })
-        }
-        result
-    }
-
-    fn size_from_this(&self) -> usize {
-        size_between(self.this.ptr, self.last_byte)
-    }
-
-    fn can_advance(&self) -> bool {
-        self.next.ptr < self.last_byte
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Byte {
-    ptr: *const u8,
-    value: u8,
 }
 
 // TODO(sen) Rework this to handle components in a cleaner way by
@@ -704,7 +603,6 @@ fn resolve(
     string: &String,
     components: &mut Components,
     input_dir: &String,
-    slot_fill: Option<&String>,
 ) -> String {
     // TODO(sen) Cleaner way to handle memory here
     let memory = unsafe { &mut *memory };
@@ -720,342 +618,92 @@ fn resolve(
         while let Some(token) = tokeniser.next_token() {
             match token {
                 Token::String(string) => {
-                    debug_line_raw(&string);
                     output_memory.push_and_copy(string.ptr, string.size);
                 }
-                Token::ComponentTag(component_open) => {
-                    debug_line_raw(&component_open.literal);
-                    debug_line_raw(&component_open.name);
-                }
-            };
-        }
-    }
-
-    /*
-    // NOTE(sen) Component resolution
-    if let Some(mut window) = ByteWindow2::new(string) {
-        // NOTE(sen) If there is no custom component, use this to copy input to output
-        let mut search_start = window.this.ptr;
-        let mut search_length = window.size_from_this();
-
-        // NOTE(sen) Search through input and replace components with their contents
-        'component_search: loop {
-            // NOTE(sen) Find a custom component
-            let component_used = {
-                // NOTE(sen) Components start with < followed by an uppercase
-                // letter, no spaces in-between
-                let first_part_start = {
-                    let mut result = None;
-                    loop {
-                        if window.this.value == b'<' && window.next.value.is_ascii_uppercase() {
-                            result = Some(window.this.ptr);
-                            break;
-                        }
-                        if !window.advance_one() {
-                            break;
-                        }
-                    }
-                    match result {
-                        Some(start) => start,
-                        // NOTE(sen) Component not present in window
-                        None => break 'component_search,
-                    }
-                };
-
-                // NOTE(sen) Advance up to the name
-                window.advance_one();
-                let component_name = match window.next_name() {
-                    Some(name) => name,
-                    // TODO(sen) Error - found start but not name
-                    None => break 'component_search,
-                };
-
-                // NOTE(sen) Should be just past the name at this point
-
-                // TODO(sen) Parse arguments
-
-                // NOTE(sen) The opening tag should end with > for two-part
-                // components and /> for one-part components
-                let (first_part_end, two_part) = {
-                    let mut result = None;
-                    window.skip_whitespace();
-                    if window.this.value == b'/' && window.next.value == b'>' {
-                        result = Some((window.next.ptr, false));
-                        window.advance(2);
-                    } else if window.this.value == b'>' {
-                        result = Some((window.this.ptr, true));
-                        window.advance_one();
-                    }
-                    match result {
-                        Some(result) => result,
-                        // TODO(sen) Error - found start and name but not end of that tag
-                        None => break 'component_search,
-                    }
-                };
-
-                let first_part = String {
-                    ptr: first_part_start,
-                    size: size_between(first_part_start, first_part_end),
-                };
-
-                // NOTE(sen) Second part (if present) is just </[spaces]NAME[spaces]>
-                let second_part = if two_part {
-                    let mut result = None;
-                    loop {
-                        // NOTE(sen) There shouldn't be any spaces between these two
-                        if window.this.value == b'<' && window.next.value == b'/' {
-                            let test_start = window.this.ptr;
-                            window.advance(2);
-                            // NOTE(sen) This will skip whitespaces
-                            let test_name = window.next_name();
-                            if test_name == Some(component_name) {
-                                // NOTE(sen) Only whitespaces are allowed before closing
-                                window.skip_whitespace();
-                                if window.this.value == b'>' {
-                                    result = Some(String {
-                                        ptr: test_start,
-                                        size: size_between(test_start, window.this.ptr),
-                                    });
-                                    window.advance_one();
-                                    break;
-                                } else {
-                                    // TODO(sen) Error - found opening but not closing
-                                }
+                Token::ComponentTag(component_tag) => {
+                    // NOTE(sen) Find the component in cache or read it anew and store it in cache
+                    let component_in_hash = {
+                        // TODO(sen) Replace with a hash-based lookup
+                        let mut lookup_result = None;
+                        let mut component_in_hash = components.first;
+                        while let Some(component_in_hash_ptr) = component_in_hash {
+                            let component_in_hash_value = unsafe { &*component_in_hash_ptr };
+                            if component_in_hash_value.name == component_tag.name {
+                                lookup_result = Some(component_in_hash_value);
                                 break;
+                            } else {
+                                component_in_hash = component_in_hash_value.next;
                             }
                         }
-                        if !window.advance_one() {
-                            break;
-                        }
-                    }
-                    // TODO(sen) If none - error
-                    result
-                } else {
-                    None
-                };
 
-                ComponentUsed {
-                    first_part,
-                    second_part,
-                    name: component_name,
-                }
-            };
+                        if let Some(component_looked_up) = lookup_result {
+                            log_debug!("found component {} in cache\n", component_tag.name);
+                            component_looked_up
+                        } else {
+                            log_debug!("did not find component {} in cache\n", component_tag.name);
+                            // NOTE(sen) This should be zeroed since the areana is never overwritten
+                            let new_component =
+                                unsafe { &mut *memory.components.push_struct::<Component>() };
 
-            log_debug!("found component {}\n", component_used.name);
+                            // NOTE(sen) Name from use
+                            new_component.name = {
+                                let size = component_tag.name.size;
+                                let ptr = memory
+                                    .component_names
+                                    .push_and_copy(component_tag.name.ptr, size);
+                                String { ptr, size }
+                            };
 
-            // NOTE(sen) Find the component in cache or read it anew and store it in cache
-            let component_in_hash = {
-                // TODO(sen) Replace with a hash-based lookup
-                let mut lookup_result = None;
-                let mut component_in_hash = components.first;
-                while let Some(component_in_hash_ptr) = component_in_hash {
-                    let component_in_hash_value = unsafe { &*component_in_hash_ptr };
-                    if component_in_hash_value.name == component_used.name {
-                        lookup_result = Some(component_in_hash_value);
-                        break;
-                    } else {
-                        component_in_hash = component_in_hash_value.next;
-                    }
-                }
-
-                if let Some(component_looked_up) = lookup_result {
-                    log_debug!("found component {} in cache\n", component_used.name);
-                    component_looked_up
-                } else {
-                    log_debug!("did not find component {} in cache\n", component_used.name);
-                    // NOTE(sen) This should be zeroed since the areana is never overwritten
-                    let new_component =
-                        unsafe { &mut *memory.components.push_struct::<Component>() };
-
-                    // NOTE(sen) Name from use
-                    new_component.name = {
-                        let size = component_used.name.size;
-                        let ptr = memory
-                            .component_names
-                            .push_and_copy(component_used.name.ptr, size);
-                        String { ptr, size }
-                    };
-
-                    // NOTE(sen) Read in contents from file
-                    let mut filepath_memory = memory.filepath.begin_temporary();
-                    let new_component_path = String::from_scss(
-                        filepath_memory.arena(),
-                        input_dir,
-                        platform::PATH_SEP,
-                        &new_component.name,
-                        &".html".to_string(),
-                    );
-                    log_debug!("reading new component from {}\n", new_component_path);
-                    let mut new_component_contents_raw_mem = memory.input.begin_temporary();
-                    let new_component_contents_raw_result = platform::read_file(
-                        new_component_contents_raw_mem.arena(),
-                        &new_component_path,
-                    );
-                    filepath_memory.end();
-                    if let Ok(new_component_contents_raw) = new_component_contents_raw_result {
-                        log_debug_line_sep();
-                        log_debug!(
-                            "Starting resolution of the new component {}\n",
-                            new_component.name
-                        );
-                        // NOTE(sen) Resolve other components (but not slots) in the component string
-                        new_component.contents = resolve(
-                            memory,
-                            &mut memory.component_contents,
-                            // NOTE(sen) We don't want any leading/trailing whitespaces in components
-                            &new_component_contents_raw.trim(),
-                            components,
-                            input_dir,
-                            None,
-                        );
-                        log_debug!("resolved new component {}\n", new_component.name);
-                        log_debug_line_sep();
-
-                        // NOTE(sen) Find the slot (if present)
-                        new_component.slot = None;
-                        if let Some(mut component_contents_window) =
-                            ByteWindow2::new(&new_component.contents)
-                        {
-                            let target = b"<slot";
-                            'search: loop {
-                                let test_start_ptr = component_contents_window.this.ptr;
-                                let mut all_equal = true;
-                                for (target_index, target_value) in target.iter().enumerate() {
-                                    let test_ptr = unsafe { test_start_ptr.add(target_index) };
-                                    let test_value = unsafe { *test_ptr };
-                                    if test_value != *target_value {
-                                        all_equal = false;
-                                        break;
-                                    }
-                                }
-                                if all_equal {
-                                    // NOTE(sen) Moving past the opening and
-                                    // whitespace should land us at the ending
-                                    component_contents_window.advance(target.len());
-                                    component_contents_window.skip_whitespace();
-                                    if component_contents_window.this.value == b'/'
-                                        && component_contents_window.next.value == b'>'
-                                    {
-                                        let whole_literal = String {
-                                            ptr: test_start_ptr,
-                                            size: size_between(
-                                                test_start_ptr,
-                                                component_contents_window.next.ptr,
-                                            ),
-                                        };
-                                        log_debug!(
-                                            "found slot in new component {}\n",
-                                            new_component.name
-                                        );
-                                        new_component.slot = Some(Slot { whole_literal });
-                                    } else {
-                                        // TODO(sen) Error - found start but not end
-                                    }
-                                    break 'search;
-                                }
-                                if !component_contents_window.advance_one() {
-                                    break 'search;
-                                }
+                            // NOTE(sen) Read in contents from file
+                            let mut filepath_memory = memory.filepath.begin_temporary();
+                            let new_component_path = String::from_scss(
+                                filepath_memory.arena.as_ref_mut(),
+                                input_dir,
+                                platform::PATH_SEP,
+                                &new_component.name,
+                                &".html".to_string(),
+                            );
+                            log_debug!("reading new component from {}\n", new_component_path);
+                            let new_component_contents_raw_result = platform::read_file(
+                                &mut memory.component_contents,
+                                &new_component_path,
+                            );
+                            filepath_memory.end();
+                            if let Ok(new_component_contents_raw) =
+                                new_component_contents_raw_result
+                            {
+                                new_component.contents = new_component_contents_raw.trim()
+                            } else {
+                                // TODO(sen) Error - component used but not found
                             }
-                        };
-                    } else {
-                        // TODO(sen) Error - component used but not found
-                    }
-                    new_component_contents_raw_mem.end();
 
-                    // NOTE(sen) Append to the list
-                    new_component.next = components.first;
-                    components.first = Some(new_component);
-                    new_component
-                }
-            };
-
-            // NOTE(sen) Copy the part of the string that's before the component
-            output_memory.push_and_copy_between(search_start, component_used.first_part.ptr);
-
-            // NOTE(sen) Resolve the component appropriately
-            if let Some(second_part) = component_used.second_part {
-                log_debug!("component {} is a two-parter\n", component_in_hash.name);
-                if let Some(slot) = &component_in_hash.slot {
-                    // NOTE(sen) Write the component up to the slot
-                    output_memory.push_and_copy(
-                        component_in_hash.contents.ptr,
-                        size_between(component_in_hash.contents.ptr, slot.whole_literal.ptr) - 1,
-                    );
-
-                    // NOTE(sen) This is still raw input
-                    let component_used_contents_raw = {
-                        let base = unsafe {
-                            component_used
-                                .first_part
-                                .ptr
-                                .add(component_used.first_part.size)
-                        };
-                        let one_past_end = second_part.ptr;
-                        let size = one_past_end as usize - base as usize;
-                        String { ptr: base, size }
+                            // NOTE(sen) Append to the list
+                            new_component.next = components.first;
+                            components.first = Some(new_component);
+                            new_component
+                        }
                     };
-
-                    // NOTE(sen) Write the resolved contents of the used component
-                    // instead of the slot
                     log_debug_line_sep();
                     log_debug!(
-                        "starting resolution of the insides of component {}\n",
+                        "Start writing contents of {} to output\n",
                         component_in_hash.name
                     );
                     resolve(
                         memory,
-                        output_memory,
-                        &component_used_contents_raw,
+                        &mut memory.output,
+                        &component_in_hash.contents,
                         components,
                         input_dir,
-                        None,
                     );
                     log_debug!(
-                        "finished resolution of the insides of component {}\n",
+                        "Finish writing contents of {} to output\n",
                         component_in_hash.name
                     );
                     log_debug_line_sep();
-
-                    // NOTE(sen) Write the component after the slot
-                    {
-                        let base = unsafe { slot.whole_literal.ptr.add(slot.whole_literal.size) };
-                        output_memory.push_and_copy(
-                            base,
-                            component_in_hash.contents.size
-                                - (size_between(component_in_hash.contents.ptr, base) - 1),
-                        );
-                    }
-                } else {
-                    // TODO(sen) Error - second part present in component used
-                    // but no slot to put it in
                 }
-            } else {
-                if component_in_hash.slot.is_some() {
-                    // TODO(sen) Error - slot present in definition but used as a one-parter
-                }
-                log_debug!(
-                    "component {} is a one-parter - copied contets\n",
-                    component_in_hash.name
-                );
-                // NOTE(sen) Replace the component with its contents
-                output_memory.push_and_copy(
-                    component_in_hash.contents.ptr,
-                    component_in_hash.contents.size,
-                );
-            }
-
-            // NOTE(sen) Reset for the next loop
-            search_start = window.this.ptr;
-            search_length = window.size_from_this();
+            };
         }
-
-        // NOTE(sen) Copy the part of the input string where no component was found
-        output_memory.push_and_copy(search_start, search_length);
-    } else {
-        // NOTE(sen) Couldn't create window - copy the whole input string
-        output_memory.push_and_copy(string.ptr, string.size);
-    }*/
+    }
 
     // NOTE(sen) All output should be in the output arena at this point
     #[allow(clippy::let_and_return)]
