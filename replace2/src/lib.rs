@@ -266,11 +266,6 @@ impl MemoryArena {
         let base = self.push_size(core::mem::size_of::<T>());
         base.cast()
     }
-    /// Does not include `two`
-    fn push_and_copy_between(&mut self, one: *const u8, two: *const u8) {
-        let ptr_distance = two as usize - one as usize;
-        self.push_and_copy(one, ptr_distance);
-    }
     fn begin_temporary(&mut self) -> TemporaryMemory {
         self.temporary_count += 1;
         TemporaryMemory {
@@ -456,18 +451,6 @@ struct Component {
     /// Leading and trailing whitespaces are removed
     contents: String,
     next: Option<*const Component>,
-}
-
-fn size_between(ptr1: *const u8, ptr2: *const u8) -> usize {
-    debug_assert!(ptr2 > ptr1);
-    ptr2 as usize - ptr1 as usize + 1
-}
-
-struct ComponentUsed {
-    first_part: String,
-    second_part: Option<String>,
-    name: String,
-    // TODO(sen) Implement params
 }
 
 struct Tokeniser {
