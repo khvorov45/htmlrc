@@ -544,18 +544,6 @@ impl Tokeniser {
                 // TODO(sen) Advance past and collect relevant information
                 None
             }
-            TokenType::Slot => {
-                // TODO(sen) Advance past and collect relevant information
-                None
-            }
-            TokenType::SlotOpen => {
-                // TODO(sen) Advance past and collect relevant information
-                None
-            }
-            TokenType::SlotClose => {
-                // TODO(sen) Advance past and collect relevant information
-                None
-            }
         }
     }
 
@@ -590,40 +578,6 @@ impl Tokeniser {
                         let value2 = unsafe { *ptr2 };
                         if value2.is_ascii_uppercase() {
                             result = TokenType::ComponentClose;
-                        } else if let Some(name) = self.read_name_from(2) {
-                            if name == "slot" {
-                                result = TokenType::SlotClose;
-                            }
-                        }
-                    }
-                } else if let Some(name) = self.read_name_from(1) {
-                    let target_name = "slot";
-                    if name == target_name {
-                        let mut extra_offset = 0;
-                        while let Some(after_slot_ptr) =
-                            self.peek(1 + target_name.as_bytes().len() + extra_offset)
-                        {
-                            let after_slot_value = unsafe { *after_slot_ptr };
-                            if after_slot_value == b'>' {
-                                result = TokenType::SlotOpen;
-                                break;
-                            } else if after_slot_value == b'/' {
-                                if let Some(after_slot_ptr1) =
-                                    self.peek(1 + target_name.as_bytes().len() + extra_offset + 1)
-                                {
-                                    let after_slot_value1 = unsafe { *after_slot_ptr1 };
-                                    if after_slot_value1 == b'>' {
-                                        result = TokenType::Slot
-                                    }
-                                }
-                                break;
-                            } else if after_slot_value.is_ascii_whitespace()
-                                || after_slot_value.is_ascii_alphanumeric()
-                            {
-                                extra_offset += 1;
-                            } else {
-                                break;
-                            }
                         }
                     }
                 }
@@ -638,9 +592,6 @@ enum TokenType {
     String,
     ComponentOpen,
     ComponentClose,
-    Slot,
-    SlotOpen,
-    SlotClose,
 }
 
 enum Token {
