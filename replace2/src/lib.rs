@@ -93,14 +93,14 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
         let mut filepath_memory = memory.filepath.begin_temporary();
         let input_file_path = String::from_scs(
-            filepath_memory.arena(),
+            filepath_memory.arena.as_ref_mut(),
             &input_dir,
             PATH_SEP,
             &input_file_name,
         );
 
         let mut input_memory = memory.input.begin_temporary();
-        if let Ok(input_string) = read_file(input_memory.arena(), &input_file_path) {
+        if let Ok(input_string) = read_file(input_memory.arena.as_ref_mut(), &input_file_path) {
             log_debug!("started resolution of input at {}\n", input_file_path);
             filepath_memory.end();
             let result = resolve(
@@ -117,12 +117,12 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             debug_assert!(memory.input.temporary_count == 1);
 
             let mut filepath_memory = memory.filepath.begin_temporary();
-            let output_dir_path = String::from_s(filepath_memory.arena(), &output_dir);
+            let output_dir_path = String::from_s(filepath_memory.arena.as_ref_mut(), &output_dir);
             if create_dir_if_not_exists(&output_dir_path).is_ok() {
                 filepath_memory.reset();
 
                 let output_file_path = String::from_scs(
-                    filepath_memory.arena(),
+                    filepath_memory.arena.as_ref_mut(),
                     &output_dir,
                     PATH_SEP,
                     &input_file_name,
@@ -155,43 +155,63 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     exit();
 }
 
-trait ConstPointer {
-    fn deref(&self) -> u8;
+trait PointerDeref<T> {
+    fn deref(&self) -> T;
+}
+
+impl<T: Copy> PointerDeref<T> for *const T {
+    fn deref(&self) -> T {
+        unsafe { **self }
+    }
+}
+
+impl<T: Copy> PointerDeref<T> for *mut T {
+    fn deref(&self) -> T {
+        unsafe { **self }
+    }
+}
+
+trait ConstPointer<T> {
     fn plus(&self, offset: usize) -> Self;
     fn minus(&self, offset: usize) -> Self;
+    fn as_ref(&self) -> &T;
 }
 
-impl ConstPointer for *const u8 {
-    fn deref(&self) -> u8 {
-        unsafe { **self }
-    }
+impl<T> ConstPointer<T> for *const T {
     fn plus(&self, offset: usize) -> Self {
         unsafe { self.add(offset) }
     }
     fn minus(&self, offset: usize) -> Self {
         unsafe { self.sub(offset) }
     }
+    fn as_ref(&self) -> &T {
+        unsafe { &**self }
+    }
 }
 
-impl ConstPointer for *mut u8 {
-    fn deref(&self) -> u8 {
-        unsafe { **self }
-    }
+impl<T> ConstPointer<T> for *mut T {
     fn plus(&self, offset: usize) -> Self {
         unsafe { self.add(offset) }
     }
     fn minus(&self, offset: usize) -> Self {
         unsafe { self.sub(offset) }
     }
+    fn as_ref(&self) -> &T {
+        unsafe { &**self }
+    }
 }
 
-trait MutPointer {
-    fn deref_and_assign(&self, other: u8);
+trait MutPointer<T> {
+    fn deref_and_assign(&self, other: T);
+    fn as_ref_mut(&mut self) -> &mut T;
 }
 
-impl MutPointer for *mut u8 {
-    fn deref_and_assign(&self, other: u8) {
+impl<T> MutPointer<T> for *mut T {
+    fn deref_and_assign(&self, other: T) {
         unsafe { **self = other }
+    }
+    fn as_ref_mut(&mut self) -> &mut T {
+        unsafe { &mut **self }
     }
 }
 
@@ -273,15 +293,12 @@ struct TemporaryMemory {
 }
 
 impl TemporaryMemory {
-    fn arena(&mut self) -> &mut MemoryArena {
-        unsafe { &mut *self.arena }
-    }
     fn reset(&mut self) {
-        self.arena().used = self.used_before;
+        self.arena.as_ref_mut().used = self.used_before;
     }
     fn end(mut self) {
         let used_before = self.used_before;
-        let arena = self.arena();
+        let arena = self.arena.as_ref_mut();
         debug_assert!(arena.temporary_count >= 1);
         arena.temporary_count -= 1;
         arena.used = used_before;
@@ -647,11 +664,11 @@ impl ByteWindow2 {
                 last_byte: string.ptr.plus(string.size - 1),
                 this: Byte {
                     ptr: string.ptr,
-                    value: unsafe { *string.ptr },
+                    value: string.ptr.deref(),
                 },
                 next: Byte {
                     ptr: second_ptr,
-                    value: unsafe { *second_ptr },
+                    value: second_ptr.deref(),
                 },
             })
         } else {
