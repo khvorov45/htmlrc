@@ -6,6 +6,155 @@ struct Error {}
 
 type Result<T> = core::result::Result<T, Error>;
 
+const KILOBYTE: usize = 1024;
+const MEGABYTE: usize = KILOBYTE * 1024;
+
+pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
+    use platform::{
+        allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
+        last_cycle_count, read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
+    };
+
+    let program_start_time = get_timespec_now();
+    let program_start_cycle = last_cycle_count();
+
+    let input_dir = input_dir.to_string();
+    let input_file_name = input_file_name.to_string();
+    let output_dir = output_dir.to_string();
+
+    log_debug_title("START");
+    log_debug!("Input directory: {}\n", &input_dir);
+    log_debug!("Input file: {}\n", &input_file_name);
+    log_debug!("output_dir: {}\n", &output_dir);
+    log_debug_line_sep();
+
+    let (
+        filepath_size,
+        components_size,
+        component_names_size,
+        component_contents_size,
+        io_size,
+        total_memory_size,
+    ) = {
+        let filepath = MAX_PATH_BYTES;
+        // TODO(sen) How many components do we need?
+        let components_count = 512;
+        let components = components_count * core::mem::size_of::<Component>();
+        let component_names = components_count * MAX_FILENAME_BYTES;
+        // TODO(sen) How big do we expect each component to be?
+        let component_contents = components_count * 128 * KILOBYTE;
+        // TODO(sen) How big should each io arena be?
+        let io = 10 * MEGABYTE;
+        (
+            filepath,
+            components,
+            component_names,
+            component_contents,
+            io,
+            filepath + components + component_names + component_contents + io * 2,
+        )
+    };
+
+    log_debug_title("MEMORY");
+    log_debug!("Filepath: {}B\n", filepath_size);
+    log_debug!("Components: {}KB\n", components_size / 1024);
+    log_debug!("Component names: {}KB\n", component_names_size / 1024);
+    log_debug!(
+        "Component contents: {}MB\n",
+        component_contents_size / 1024 / 1024
+    );
+    log_debug!("IO: {}MB\n", io_size / 1024 / 1024);
+    log_debug!("Total: {}MB\n", total_memory_size / 1024 / 1024);
+    log_debug_line_sep();
+
+    if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
+        let mut memory = {
+            let mut size_used = 0;
+            let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
+            let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
+            let component_names =
+                MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
+            let component_contents =
+                MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
+            let input = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
+            let output = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
+            debug_assert!(size_used == total_memory_size);
+            Memory {
+                filepath,
+                input,
+                output,
+                components,
+                component_names,
+                component_contents,
+            }
+        };
+
+        let mut components = Components { first: None };
+
+        let mut filepath_memory = memory.filepath.begin_temporary();
+        let input_file_path = String::from_scs(
+            filepath_memory.arena(),
+            &input_dir,
+            PATH_SEP,
+            &input_file_name,
+        );
+
+        let mut input_memory = memory.input.begin_temporary();
+        if let Ok(input_string) = read_file(input_memory.arena(), &input_file_path) {
+            log_debug!("started resolution of input at {}\n", input_file_path);
+            filepath_memory.end();
+            let result = resolve(
+                &mut memory,
+                &mut memory.output,
+                &input_string,
+                &mut components,
+                &input_dir,
+                None,
+            );
+            log_debug!("input resolution finished\n");
+
+            debug_assert!(memory.filepath.temporary_count == 0);
+            debug_assert!(memory.input.temporary_count == 1);
+
+            let mut filepath_memory = memory.filepath.begin_temporary();
+            let output_dir_path = String::from_s(filepath_memory.arena(), &output_dir);
+            if create_dir_if_not_exists(&output_dir_path).is_ok() {
+                filepath_memory.reset();
+
+                let output_file_path = String::from_scs(
+                    filepath_memory.arena(),
+                    &output_dir,
+                    PATH_SEP,
+                    &input_file_name,
+                );
+
+                #[allow(clippy::branches_sharing_code)]
+                if write_file(&output_file_path, &result).is_ok() {
+                    log_info!("Wrote output to {}\n", output_file_path);
+                    log_debug!(
+                        "Completed in {:.5}s, {}cycles\n",
+                        get_seconds_from(&program_start_time),
+                        last_cycle_count() - program_start_cycle
+                    );
+                } else {
+                    log_error!("Failed to write to output file {}\n", output_file_path);
+                }
+            } else {
+                log_error!("Failed to create output directory {}\n", output_dir);
+            }
+        } else {
+            log_error!("Failed to read input from {}\n", input_file_path);
+        }
+    } else {
+        log_error!(
+            "Memory allocation failed (size requested: {} bytes)\n",
+            total_memory_size
+        );
+    }
+
+    exit();
+}
+
 struct Memory {
     /// Filepath for input/output, one at a time
     filepath: MemoryArena,
@@ -262,161 +411,7 @@ struct Component {
     contents: String,
     // TODO(sen) Handle multiple slots
     /// For components with children (two-parters) only
-    slot: Option<Slot>,
     next: Option<*const Component>,
-}
-
-struct Slot {
-    whole_literal: String,
-}
-
-const KILOBYTE: usize = 1024;
-const MEGABYTE: usize = KILOBYTE * 1024;
-
-pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
-    use platform::{
-        allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
-        last_cycle_count, read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
-    };
-
-    let program_start_time = get_timespec_now();
-    let program_start_cycle = last_cycle_count();
-
-    let input_dir = input_dir.to_string();
-    let input_file_name = input_file_name.to_string();
-    let output_dir = output_dir.to_string();
-
-    log_debug_title("START");
-    log_debug!("Input directory: {}\n", &input_dir);
-    log_debug!("Input file: {}\n", &input_file_name);
-    log_debug!("output_dir: {}\n", &output_dir);
-    log_debug_line_sep();
-
-    let (
-        filepath_size,
-        components_size,
-        component_names_size,
-        component_contents_size,
-        io_size,
-        total_memory_size,
-    ) = {
-        let filepath = MAX_PATH_BYTES;
-        // TODO(sen) How many components do we need?
-        let components_count = 512;
-        let components = components_count * core::mem::size_of::<Component>();
-        let component_names = components_count * MAX_FILENAME_BYTES;
-        // TODO(sen) How big do we expect each component to be?
-        let component_contents = components_count * 128 * KILOBYTE;
-        // TODO(sen) How big should each io arena be?
-        let io = 10 * MEGABYTE;
-        (
-            filepath,
-            components,
-            component_names,
-            component_contents,
-            io,
-            filepath + components + component_names + component_contents + io * 2,
-        )
-    };
-
-    log_debug_title("MEMORY");
-    log_debug!("Filepath: {}B\n", filepath_size);
-    log_debug!("Components: {}KB\n", components_size / 1024);
-    log_debug!("Component names: {}KB\n", component_names_size / 1024);
-    log_debug!(
-        "Component contents: {}MB\n",
-        component_contents_size / 1024 / 1024
-    );
-    log_debug!("IO: {}MB\n", io_size / 1024 / 1024);
-    log_debug!("Total: {}MB\n", total_memory_size / 1024 / 1024);
-    log_debug_line_sep();
-
-    if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
-        let mut memory = {
-            let mut size_used = 0;
-            let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
-            let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
-            let component_names =
-                MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
-            let component_contents =
-                MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
-            let input = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
-            let output = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
-            debug_assert!(size_used == total_memory_size);
-            Memory {
-                filepath,
-                input,
-                output,
-                components,
-                component_names,
-                component_contents,
-            }
-        };
-
-        let mut components = Components { first: None };
-
-        let mut filepath_memory = memory.filepath.begin_temporary();
-        let input_file_path = String::from_scs(
-            filepath_memory.arena(),
-            &input_dir,
-            PATH_SEP,
-            &input_file_name,
-        );
-
-        let mut input_memory = memory.input.begin_temporary();
-        if let Ok(input_string) = read_file(input_memory.arena(), &input_file_path) {
-            log_debug!("started resolution of input at {}\n", input_file_path);
-            filepath_memory.end();
-            let result = resolve(
-                &mut memory,
-                &mut memory.output,
-                &input_string,
-                &mut components,
-                &input_dir,
-                None,
-            );
-            log_debug!("input resolution finished\n");
-
-            debug_assert!(memory.filepath.temporary_count == 0);
-            debug_assert!(memory.input.temporary_count == 1);
-
-            let mut filepath_memory = memory.filepath.begin_temporary();
-            let output_dir_path = String::from_s(filepath_memory.arena(), &output_dir);
-            if create_dir_if_not_exists(&output_dir_path).is_ok() {
-                filepath_memory.reset();
-
-                let output_file_path = String::from_scs(
-                    filepath_memory.arena(),
-                    &output_dir,
-                    PATH_SEP,
-                    &input_file_name,
-                );
-
-                #[allow(clippy::branches_sharing_code)]
-                if write_file(&output_file_path, &result).is_ok() {
-                    log_info!("Wrote output to {}\n", output_file_path);
-                    log_debug!(
-                        "Completed in {:.5}s, {}cycles\n",
-                        get_seconds_from(&program_start_time),
-                        last_cycle_count() - program_start_cycle
-                    );
-                } else {
-                    log_error!("Failed to write to output file {}\n", output_file_path);
-                }
-            } else {
-                log_error!("Failed to create output directory {}\n", output_dir);
-            }
-        } else {
-            log_error!("Failed to read input from {}\n", input_file_path);
-        }
-    } else {
-        log_error!(
-            "Memory allocation failed (size requested: {} bytes)\n",
-            total_memory_size
-        );
-    }
-
-    exit();
 }
 
 fn size_between(ptr1: *const u8, ptr2: *const u8) -> usize {
