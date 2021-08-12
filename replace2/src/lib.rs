@@ -33,32 +33,21 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     log_debug!("output_dir: {}\n", &output_dir);
     log_debug_line_sep();
 
-    let (
-        filepath_size,
-        components_size,
-        component_names_size,
-        component_contents_size,
-        io_size,
-        total_memory_size,
-    ) = {
-        let filepath = MAX_PATH_BYTES;
-        // TODO(sen) How many components do we need?
-        let components_count = 512;
-        let components = components_count * core::mem::size_of::<Component>();
-        let component_names = components_count * MAX_FILENAME_BYTES;
-        // TODO(sen) How big do we expect each component to be?
-        let component_contents = components_count * 128 * KILOBYTE;
-        // TODO(sen) How big should each io arena be?
-        let io = 10 * MEGABYTE;
-        (
-            filepath,
-            components,
-            component_names,
-            component_contents,
-            io,
-            filepath + components + component_names + component_contents + io * 2,
-        )
-    };
+    // TODO(sen) Actually read the directory here
+    let (total_html_file_count, total_html_file_size) = (512, 512 * 128 * KILOBYTE);
+
+    let filepath_size = MAX_PATH_BYTES;
+    let components_size = total_html_file_count * core::mem::size_of::<Component>();
+    let component_names_size = total_html_file_count * MAX_FILENAME_BYTES;
+    let component_contents_size = total_html_file_size;
+    let input_size = total_html_file_size;
+    let output_size = 10 * MEGABYTE;
+    let total_size = filepath_size
+        + components_size
+        + component_names_size
+        + component_contents_size
+        + input_size
+        + output_size;
 
     log_debug_title("MEMORY");
     log_debug!("Filepath: {}B\n", filepath_size);
@@ -68,11 +57,11 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
         "Component contents: {}MB\n",
         component_contents_size / 1024 / 1024
     );
-    log_debug!("IO: {}MB\n", io_size / 1024 / 1024);
-    log_debug!("Total: {}MB\n", total_memory_size / 1024 / 1024);
+    log_debug!("Input: {}MB\n", input_size / 1024 / 1024);
+    log_debug!("Total: {}MB\n", total_size / 1024 / 1024);
     log_debug_line_sep();
 
-    if let Ok(memory_base_ptr) = allocate_and_clear(total_memory_size) {
+    if let Ok(memory_base_ptr) = allocate_and_clear(total_size) {
         let mut memory = {
             let mut size_used = 0;
             let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
@@ -81,9 +70,9 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
             let component_contents =
                 MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
-            let input = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
-            let output = MemoryArena::new(memory_base_ptr, &mut size_used, io_size);
-            debug_assert!(size_used == total_memory_size);
+            let input = MemoryArena::new(memory_base_ptr, &mut size_used, input_size);
+            let output = MemoryArena::new(memory_base_ptr, &mut size_used, output_size);
+            debug_assert!(size_used == total_size);
             Memory {
                 filepath,
                 input,
@@ -153,7 +142,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     } else {
         log_error!(
             "Memory allocation failed (size requested: {} bytes)\n",
-            total_memory_size
+            total_size
         );
     }
 
@@ -227,7 +216,7 @@ struct Memory {
     /// on how much components are nested
     input: MemoryArena,
     /// Final resolved string
-    output: MemoryArena,
+    output: MemoryArena, // TODO(sen) Flush to file when full
     /// Components table
     components: MemoryArena,
     component_names: MemoryArena,
