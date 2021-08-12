@@ -591,23 +591,6 @@ impl Tokeniser {
         }
     }
 
-    fn read_name_from(&self, offset: usize) -> Option<String> {
-        let base = self.peek(offset)?;
-        let mut ptr = base;
-        let mut value = base.deref();
-        let mut size = 0;
-        if value.is_ascii_alphabetic() {
-            while value.is_ascii_alphanumeric() {
-                size += 1;
-                ptr = ptr.plus(1);
-                value = ptr.deref();
-            }
-            Some(String { ptr: base, size })
-        } else {
-            None
-        }
-    }
-
     fn current_token(&self) -> Option<TokenType> {
         let ptr0 = self.peek(0)?;
         let value0 = ptr0.deref();
