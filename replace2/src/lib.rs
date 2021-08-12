@@ -456,8 +456,6 @@ struct Component {
     name: String,
     /// Leading and trailing whitespaces are removed
     contents: String,
-    // TODO(sen) Handle multiple slots
-    /// For components with children (two-parters) only
     next: Option<*const Component>,
 }
 
