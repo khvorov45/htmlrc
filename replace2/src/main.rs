@@ -3,7 +3,8 @@
 #![windows_subsystem = "console"]
 
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    replace2::handle_panic(info);
     loop {}
 }
 

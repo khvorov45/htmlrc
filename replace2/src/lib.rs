@@ -9,6 +9,11 @@ type Result<T> = core::result::Result<T, Error>;
 const KILOBYTE: usize = 1024;
 const MEGABYTE: usize = KILOBYTE * 1024;
 
+pub fn handle_panic(info: &core::panic::PanicInfo) {
+    log_error!("{}\n", info);
+    platform::exit();
+}
+
 pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     use platform::{
         allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
