@@ -544,12 +544,52 @@ impl Tokeniser {
                     ptr: name_base,
                     size: name_size,
                 };
-                self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                let mut tag = ComponentTag {
+                    name,
+                    args: [None; 16],
+                };
+                // TODO(sen) What happens when there are more than 16 arguments?
+                for arg_index in 0..tag.args.len() {
+                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                    if !self.this.deref().is_ascii_alphabetic() {
+                        break;
+                    }
+                    let arg_name_base = self.this;
+                    let arg_name_size = self
+                        .advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
+                    let arg_name = String {
+                        ptr: arg_name_base,
+                        size: arg_name_size,
+                    };
+                    debug_line_raw(&arg_name);
+                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                    if self.this.deref() != b'=' {
+                        // TODO(sen) Error - unexpected argument
+                        break;
+                    }
+                    self.advance(1);
+                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                    if self.this.deref() != b'"' {
+                        // TODO(sen) Error - unexpected argument
+                        break;
+                    }
+                    self.advance(1);
+                    let arg_value_base = self.this;
+                    let arg_value_size =
+                        self.advance_until(|tokeniser| tokeniser.this.deref() == b'"');
+                    self.advance(1);
+                    let arg_value = String {
+                        ptr: arg_value_base,
+                        size: arg_value_size,
+                    };
+                    debug_line_raw(&arg_value);
+                    tag.args[arg_index] = Some((arg_name, arg_value));
+                }
                 if self.this.deref() == b'/' {
                     self.advance(1);
                     if self.this.deref() == b'>' {
                         self.advance(1);
-                        Some(Token::ComponentTag(ComponentTag { name }))
+                        Some(Token::ComponentTag(tag))
                     } else {
                         // TODO(sen) Error - unexpected opening
                         None
@@ -591,7 +631,7 @@ enum Token {
 
 struct ComponentTag {
     name: String,
-    // TODO(sen) Implement arguments
+    args: [Option<(String, String)>; 16],
 }
 
 // TODO(sen) Rework this to handle components in a cleaner way by
@@ -612,7 +652,6 @@ fn resolve(
     let output_used_before = output_memory.used;
     let output_base = output_memory.base.plus(output_used_before);
 
-    // TODO(sen) Finish this loop
     if string.size > 0 {
         let mut tokeniser = Tokeniser::new(string);
         while let Some(token) = tokeniser.next_token() {
