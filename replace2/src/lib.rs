@@ -155,6 +155,46 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     exit();
 }
 
+trait ConstPointer {
+    fn deref(&self) -> u8;
+    fn plus(&self, offset: usize) -> Self;
+    fn minus(&self, offset: usize) -> Self;
+}
+
+impl ConstPointer for *const u8 {
+    fn deref(&self) -> u8 {
+        unsafe { **self }
+    }
+    fn plus(&self, offset: usize) -> Self {
+        unsafe { self.add(offset) }
+    }
+    fn minus(&self, offset: usize) -> Self {
+        unsafe { self.sub(offset) }
+    }
+}
+
+impl ConstPointer for *mut u8 {
+    fn deref(&self) -> u8 {
+        unsafe { **self }
+    }
+    fn plus(&self, offset: usize) -> Self {
+        unsafe { self.add(offset) }
+    }
+    fn minus(&self, offset: usize) -> Self {
+        unsafe { self.sub(offset) }
+    }
+}
+
+trait MutPointer {
+    fn deref_and_assign(&self, other: u8);
+}
+
+impl MutPointer for *mut u8 {
+    fn deref_and_assign(&self, other: u8) {
+        unsafe { **self = other }
+    }
+}
+
 struct Memory {
     /// Filepath for input/output, one at a time
     filepath: MemoryArena,
@@ -180,7 +220,7 @@ impl MemoryArena {
     fn new(base: *mut u8, offset: &mut usize, size: usize) -> MemoryArena {
         let result = MemoryArena {
             size,
-            base: unsafe { base.add(*offset) },
+            base: base.plus(*offset),
             used: 0,
             temporary_count: 0,
         };
@@ -189,7 +229,7 @@ impl MemoryArena {
     }
     fn push_size(&mut self, size: usize) -> *mut u8 {
         debug_assert!(self.size - self.used >= size);
-        let result = unsafe { self.base.add(self.used) };
+        let result = self.base.plus(self.used);
         self.used += size;
         result
     }
@@ -198,17 +238,15 @@ impl MemoryArena {
         let mut dest = base;
         let mut source = ptr;
         for _ in 0..size {
-            unsafe {
-                *dest = *source;
-                dest = dest.add(1);
-                source = source.add(1);
-            }
+            dest.deref_and_assign(source.deref());
+            dest = dest.plus(1);
+            source = source.plus(1);
         }
         base
     }
     fn push_byte(&mut self, byte: u8) -> *mut u8 {
         let base = self.push_size(1);
-        unsafe { *base = byte };
+        base.deref_and_assign(byte);
         base
     }
     fn push_struct<T>(&mut self) -> *mut T {
@@ -305,14 +343,14 @@ impl String {
     fn trim(&self) -> String {
         let mut byte = self.ptr;
         let mut first_non_whitespace = 0;
-        while unsafe { *byte }.is_ascii_whitespace() {
-            byte = unsafe { byte.add(1) };
+        while byte.deref().is_ascii_whitespace() {
+            byte = byte.plus(1);
             first_non_whitespace += 1;
         }
-        byte = unsafe { self.ptr.add(self.size - 1) };
+        byte = self.ptr.plus(self.size - 1);
         let mut last_non_whitespace = self.size - 1;
-        while unsafe { *byte }.is_ascii_whitespace() {
-            byte = unsafe { byte.sub(1) };
+        while byte.deref().is_ascii_whitespace() {
+            byte = byte.minus(1);
             last_non_whitespace -= 1;
         }
         let ptr;
@@ -322,7 +360,7 @@ impl String {
             ptr = self.ptr;
             size = 0
         } else {
-            ptr = unsafe { self.ptr.add(first_non_whitespace) };
+            ptr = self.ptr.plus(first_non_whitespace);
             size = last_non_whitespace - first_non_whitespace + 1;
         }
         String { ptr, size }
@@ -336,14 +374,12 @@ impl core::cmp::PartialEq for String {
             let mut self_byte = self.ptr;
             let mut other_byte = other.ptr;
             for _ in 0..self.size {
-                unsafe {
-                    if *self_byte != *other_byte {
-                        result = false;
-                        break;
-                    }
-                    self_byte = self_byte.add(1);
-                    other_byte = other_byte.add(1);
+                if self_byte.deref() != other_byte.deref() {
+                    result = false;
+                    break;
                 }
+                self_byte = self_byte.plus(1);
+                other_byte = other_byte.plus(1);
             }
         } else {
             result = false;
@@ -366,7 +402,7 @@ impl core::fmt::Display for String {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let source = self.ptr;
         for index in 0..self.size {
-            f.write_char(unsafe { *source.add(index) } as char)?;
+            f.write_char(source.plus(index).deref() as char)?;
         }
         Ok(())
     }
@@ -442,13 +478,9 @@ impl Tokeniser {
         }
     }
 
-    fn this_value(&self) -> u8 {
-        unsafe { *self.this }
-    }
-
     fn peek(&self, offset: usize) -> Option<*const u8> {
         if self.this_index + offset <= self.last_index {
-            Some(unsafe { self.this.add(offset) })
+            Some(self.this.plus(offset))
         } else {
             None
         }
@@ -494,15 +526,15 @@ impl Tokeniser {
                 self.advance(1);
                 let name_base = self.this;
                 let name_size =
-                    self.advance_until(|tokeniser| !tokeniser.this_value().is_ascii_alphanumeric());
+                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
                 let name = String {
                     ptr: name_base,
                     size: name_size,
                 };
                 let n_whitespace =
-                    self.advance_until(|tokeniser| !tokeniser.this_value().is_ascii_whitespace());
+                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
                 let literal_size_so_far = 1 + name_size + n_whitespace;
-                if self.this_value() == b'>' {
+                if self.this.deref() == b'>' {
                     let literal = String {
                         ptr: literal_base,
                         size: literal_size_so_far + 1,
@@ -513,9 +545,9 @@ impl Tokeniser {
                         name,
                         two_part: true,
                     }))
-                } else if self.this_value() == b'/' {
+                } else if self.this.deref() == b'/' {
                     self.advance(1);
-                    if self.this_value() == b'>' {
+                    if self.this.deref() == b'>' {
                         let literal = String {
                             ptr: literal_base,
                             size: literal_size_so_far + 2,
@@ -545,13 +577,13 @@ impl Tokeniser {
     fn read_name_from(&self, offset: usize) -> Option<String> {
         let base = self.peek(offset)?;
         let mut ptr = base;
-        let mut value = unsafe { *base };
+        let mut value = base.deref();
         let mut size = 0;
         if value.is_ascii_alphabetic() {
             while value.is_ascii_alphanumeric() {
                 size += 1;
-                ptr = unsafe { ptr.add(1) };
-                value = unsafe { *ptr };
+                ptr = ptr.plus(1);
+                value = ptr.deref();
             }
             Some(String { ptr: base, size })
         } else {
@@ -561,16 +593,16 @@ impl Tokeniser {
 
     fn current_token(&self) -> Option<TokenType> {
         let ptr0 = self.peek(0)?;
-        let value0 = unsafe { *ptr0 };
+        let value0 = ptr0.deref();
         let mut result = TokenType::String;
         if value0 == b'<' {
             if let Some(ptr1) = self.peek(1) {
-                let value1 = unsafe { *ptr1 };
+                let value1 = ptr1.deref();
                 if value1.is_ascii_uppercase() {
                     result = TokenType::ComponentOpen;
                 } else if value1 == b'/' {
                     if let Some(ptr2) = self.peek(2) {
-                        let value2 = unsafe { *ptr2 };
+                        let value2 = ptr2.deref();
                         if value2.is_ascii_uppercase() {
                             result = TokenType::ComponentClose;
                         }
@@ -610,9 +642,9 @@ struct ByteWindow2 {
 impl ByteWindow2 {
     fn new(string: &String) -> Option<ByteWindow2> {
         if string.size >= 2 {
-            let second_ptr = unsafe { string.ptr.add(1) };
+            let second_ptr = string.ptr.plus(1);
             Some(ByteWindow2 {
-                last_byte: unsafe { string.ptr.add(string.size - 1) },
+                last_byte: string.ptr.plus(string.size - 1),
                 this: Byte {
                     ptr: string.ptr,
                     value: unsafe { *string.ptr },
@@ -630,10 +662,10 @@ impl ByteWindow2 {
     fn advance_one(&mut self) -> bool {
         if self.can_advance() {
             self.this = self.next;
-            let next_ptr = unsafe { self.next.ptr.add(1) };
+            let next_ptr = self.next.ptr.plus(1);
             self.next = Byte {
                 ptr: next_ptr,
-                value: unsafe { *next_ptr },
+                value: next_ptr.deref(),
             };
             true
         } else {
@@ -713,7 +745,7 @@ fn resolve(
 
     // NOTE(sen) Output preparation, write final resolved string to `output_base`
     let output_used_before = output_memory.used;
-    let output_base = unsafe { output_memory.base.add(output_used_before) };
+    let output_base = output_memory.base.plus(output_used_before);
 
     // TODO(sen) Finish this loop
     if string.size > 0 {
