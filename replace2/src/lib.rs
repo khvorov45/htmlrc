@@ -759,6 +759,7 @@ fn resolve(
                 Token::ComponentOpen(component_open) => {
                     debug_line_raw(&component_open.literal);
                     debug_line_raw(&component_open.name);
+                    log_debug!("two-part: {}\n", &component_open.two_part);
                 }
             };
         }
