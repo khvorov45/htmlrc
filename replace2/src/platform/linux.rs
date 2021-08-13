@@ -93,7 +93,7 @@ pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<Strin
     struct stat {
         _unused_front: [u64; 6],
         st_size: i64,
-        _unused_back: [i64; 11],
+        _unused_back: [u64; 11],
     }
 
     let file_handle = unsafe { open(path.ptr.cast(), 0) };
