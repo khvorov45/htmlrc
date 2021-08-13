@@ -91,24 +91,9 @@ pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<Strin
     }
     #[repr(C)]
     struct stat {
-        st_dev: u64,
-        st_ino: u64,
-        st_nlink: u64,
-        st_mode: u32,
-        st_uid: u32,
-        st_gid: u32,
-        __pad0: i32,
-        st_rdev: u64,
+        _unused_front: [u64; 6],
         st_size: i64,
-        st_blksize: i64,
-        st_blocks: i64,
-        st_atime: i64,
-        st_atime_nsec: i64,
-        st_mtime: i64,
-        st_mtime_nsec: i64,
-        st_ctime: i64,
-        st_ctime_nsec: i64,
-        __unused: [i64; 3],
+        _unused_back: [i64; 11],
     }
 
     let file_handle = unsafe { open(path.ptr.cast(), 0) };
