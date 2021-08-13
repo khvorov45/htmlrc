@@ -2,3 +2,6 @@
 # https://docs.microsoft.com/en-us/cpp/c-runtime-library/crt-library-features
 [target.'cfg(target_os="windows")']
 rustflags = ["-C", "link-args=kernel32.lib libcmt.lib libucrt.lib libvcruntime.lib"]
+
+[target.'cfg(target_os="linux")']
+rustflags = ["-C", "link-args=-lc"]

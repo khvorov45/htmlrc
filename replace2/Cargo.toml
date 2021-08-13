@@ -8,6 +8,3 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
-
-[target.'cfg(target_os="linux")'.dependencies]
-libc = { version = "0.2", default-features = false }

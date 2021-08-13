@@ -4,8 +4,18 @@ pub(crate) const PATH_SEP: char = '/';
 pub(crate) const MAX_PATH_BYTES: usize = 4096;
 pub(crate) const MAX_FILENAME_BYTES: usize = 256;
 
+enum Void {}
+
+extern "C" {
+    fn write(file: i32, buffer: *const Void, count: usize) -> isize;
+    fn __errno_location() -> *mut i32;
+    fn open(path: *const i8, flag: i32) -> i32;
+    fn close(file: i32) -> i32;
+}
+
+const STDOUT_FILENO: i32 = 1;
+
 pub(crate) fn write_stdout(text: &str) {
-    use libc::{write, STDOUT_FILENO};
     unsafe {
         write(
             STDOUT_FILENO,
@@ -16,28 +26,37 @@ pub(crate) fn write_stdout(text: &str) {
 }
 
 pub(crate) fn write_stdout_raw(ptr: *const u8, size: usize) {
-    use libc::{write, STDOUT_FILENO};
     unsafe { write(STDOUT_FILENO, ptr as *const _, size) };
 }
 
 pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
-    use libc::{write, STDERR_FILENO};
+    const STDERR_FILENO: i32 = 2;
     unsafe { write(STDERR_FILENO, ptr as *const _, size) };
 }
 
 pub(crate) fn exit() {
+    extern "C" {
+        fn exit(code: i32);
+    }
     unsafe {
-        libc::exit(0);
+        exit(0);
     }
 }
 
 pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
-    use libc::{
-        __errno_location, close, creat, open, write, O_TRUNC, O_WRONLY, S_IRGRP, S_IROTH, S_IRUSR,
-        S_IWGRP, S_IWUSR,
-    };
+    extern "C" {
+        fn creat(path: *const i8, mode: u32) -> i32;
+    }
+    const O_WRONLY: i32 = 1;
+    const O_TRUNC: i32 = 512;
 
     let mut file_handle = unsafe { open(path.ptr.cast(), O_WRONLY | O_TRUNC) };
+
+    const S_IRUSR: u32 = 256;
+    const S_IWUSR: u32 = 128;
+    const S_IRGRP: u32 = 32;
+    const S_IWGRP: u32 = 16;
+    const S_IROTH: u32 = 4;
 
     if file_handle == -1 {
         file_handle = unsafe {
@@ -66,7 +85,31 @@ pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
 }
 
 pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<String> {
-    use libc::{__errno_location, close, fstat, open, read, stat};
+    extern "C" {
+        fn fstat(file: i32, buffer: *mut stat) -> i32;
+        fn read(file: i32, buffer: *mut Void, bytes_to_read: usize) -> isize;
+    }
+    #[repr(C)]
+    struct stat {
+        st_dev: u64,
+        st_ino: u64,
+        st_nlink: u64,
+        st_mode: u32,
+        st_uid: u32,
+        st_gid: u32,
+        __pad0: i32,
+        st_rdev: u64,
+        st_size: i64,
+        st_blksize: i64,
+        st_blocks: i64,
+        st_atime: i64,
+        st_atime_nsec: i64,
+        st_mtime: i64,
+        st_mtime_nsec: i64,
+        st_ctime: i64,
+        st_ctime_nsec: i64,
+        __unused: [i64; 3],
+    }
 
     let file_handle = unsafe { open(path.ptr.cast(), 0) };
 
@@ -96,9 +139,16 @@ pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<Strin
 }
 
 pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
-    use libc::{
-        __errno_location, closedir, mkdir, opendir, ENOENT, S_IROTH, S_IRWXG, S_IRWXU, S_IXOTH,
-    };
+    extern "C" {
+        fn opendir(dirname: *const i8) -> *mut Void;
+        fn mkdir(path: *const i8, mode: u32) -> i32;
+        fn closedir(dir: *mut Void) -> i32;
+    }
+    const ENOENT: i32 = 2;
+    const S_IROTH: u32 = 4;
+    const S_IXOTH: u32 = 1;
+    const S_IRWXU: u32 = 448;
+    const S_IRWXG: u32 = 56;
 
     let open_result = unsafe { opendir(path.ptr.cast()) };
 
@@ -123,9 +173,22 @@ pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
 }
 
 pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
-    use libc::{
-        __errno_location, mmap, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_READ, PROT_WRITE,
-    };
+    extern "C" {
+        fn mmap(
+            addr: *mut Void,
+            len: usize,
+            prot: i32,
+            flags: i32,
+            fd: i32,
+            offset: i64,
+        ) -> *mut Void;
+    }
+    const PROT_READ: i32 = 1;
+    const PROT_WRITE: i32 = 2;
+    const MAP_ANONYMOUS: i32 = 0x0020;
+    const MAP_PRIVATE: i32 = 0x0002;
+    const MAP_FAILED: *mut Void = !0 as *mut Void;
+
     let ptr = unsafe {
         mmap(
             core::ptr::null_mut(),
@@ -152,7 +215,16 @@ pub(crate) struct TimeSpec {
 }
 
 pub(crate) fn get_timespec_now() -> TimeSpec {
-    use libc::{clock_gettime, timespec, CLOCK_MONOTONIC};
+    extern "C" {
+        fn clock_gettime(clk_id: i32, tp: *mut timespec) -> i32;
+    }
+    #[repr(C)]
+    pub struct timespec {
+        pub tv_sec: i64,
+        pub tv_nsec: i64,
+    }
+    const CLOCK_MONOTONIC: i32 = 1;
+
     unsafe {
         let mut timespec: timespec = core::mem::MaybeUninit::zeroed().assume_init();
         clock_gettime(CLOCK_MONOTONIC, &mut timespec);

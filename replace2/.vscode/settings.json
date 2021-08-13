@@ -19,7 +19,10 @@
     "fstat",
     "mkdir",
     "mmap",
+    "nlink",
     "nsec",
-    "rdtsc"
+    "rdev",
+    "rdtsc",
+    "repr"
   ]
 }
