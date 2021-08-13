@@ -40,12 +40,14 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     let components_size = total_html_file_count * core::mem::size_of::<Component>();
     let component_names_size = total_html_file_count * MAX_FILENAME_BYTES;
     let component_contents_size = total_html_file_size;
+    let component_arguments_size = 512 * core::mem::size_of::<Argument>(); // TODO(sen) How many?
     let input_size = total_html_file_size;
     let output_size = 10 * MEGABYTE;
     let total_size = filepath_size
         + components_size
         + component_names_size
         + component_contents_size
+        + component_arguments_size
         + input_size
         + output_size;
 
@@ -56,6 +58,10 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     log_debug!(
         "Component contents: {}MB\n",
         component_contents_size / 1024 / 1024
+    );
+    log_debug!(
+        "Component arguments: {}KB\n",
+        component_arguments_size / 1024
     );
     log_debug!("Input: {}MB\n", input_size / 1024 / 1024);
     log_debug!("Total: {}MB\n", total_size / 1024 / 1024);
@@ -70,6 +76,8 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
             let component_contents =
                 MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
+            let component_arguments =
+                MemoryArena::new(memory_base_ptr, &mut size_used, component_arguments_size);
             let input = MemoryArena::new(memory_base_ptr, &mut size_used, input_size);
             let output = MemoryArena::new(memory_base_ptr, &mut size_used, output_size);
             debug_assert!(size_used == total_size);
@@ -80,6 +88,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 components,
                 component_names,
                 component_contents,
+                component_arguments,
             }
         };
 
@@ -106,6 +115,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
                 &input_string,
                 &mut components,
                 &input_dir,
+                None,
             );
             log_debug!("input resolution finished\n");
 
@@ -223,6 +233,7 @@ struct Memory {
     components: MemoryArena,
     component_names: MemoryArena,
     component_contents: MemoryArena,
+    component_arguments: MemoryArena,
 }
 
 struct MemoryArena {
@@ -456,6 +467,16 @@ struct Component {
     contents: String,
 }
 
+struct Arguments {
+    first: *const Argument,
+    count: usize,
+}
+
+struct Argument {
+    name: String,
+    value: String,
+}
+
 struct Tokeniser {
     this: *const u8,
     this_index: usize,
@@ -511,7 +532,7 @@ impl Tokeniser {
         counter
     }
 
-    fn next_token(&mut self) -> Option<Token> {
+    fn next_token(&mut self, argument_memory: &mut MemoryArena) -> Option<Token> {
         let token_type = self.current_token()?;
         match token_type {
             TokenType::String => {
@@ -532,10 +553,12 @@ impl Tokeniser {
                 };
                 let mut tag = ComponentTag {
                     name,
-                    args: [None; 16],
+                    args: Arguments {
+                        first: core::ptr::null(),
+                        count: 0,
+                    },
                 };
-                // TODO(sen) What happens when there are more than 16 arguments?
-                for arg_index in 0..tag.args.len() {
+                loop {
                     self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
                     if !self.this.deref().is_ascii_alphabetic() {
                         break;
@@ -547,7 +570,6 @@ impl Tokeniser {
                         ptr: arg_name_base,
                         size: arg_name_size,
                     };
-                    debug_line_raw(&arg_name);
                     self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
                     if self.this.deref() != b'=' {
                         // TODO(sen) Error - unexpected argument
@@ -568,8 +590,14 @@ impl Tokeniser {
                         ptr: arg_value_base,
                         size: arg_value_size,
                     };
-                    debug_line_raw(&arg_value);
-                    tag.args[arg_index] = Some((arg_name, arg_value));
+                    let mut arg_ptr = argument_memory.push_struct::<Argument>();
+                    let arg = arg_ptr.as_ref_mut();
+                    arg.name = arg_name;
+                    arg.value = arg_value;
+                    if tag.args.count == 0 {
+                        tag.args.first = arg;
+                    }
+                    tag.args.count += 1;
                 }
                 if self.this.deref() == b'/' {
                     self.advance(1);
@@ -617,7 +645,7 @@ enum Token {
 
 struct ComponentTag {
     name: String,
-    args: [Option<(String, String)>; 16],
+    args: Arguments,
 }
 
 // TODO(sen) Rework this to handle components in a cleaner way by
@@ -629,6 +657,7 @@ fn resolve(
     string: &String,
     components: &mut Components,
     input_dir: &String,
+    args: Option<&Arguments>,
 ) -> String {
     // TODO(sen) Cleaner way to handle memory here
     let memory = unsafe { &mut *memory };
@@ -640,7 +669,8 @@ fn resolve(
 
     if string.size > 0 {
         let mut tokeniser = Tokeniser::new(string);
-        while let Some(token) = tokeniser.next_token() {
+        let mut argument_memory = memory.component_arguments.begin_temporary();
+        while let Some(token) = tokeniser.next_token(argument_memory.arena.as_ref_mut()) {
             match token {
                 Token::String(string) => {
                     output_memory.push_and_copy(string.ptr, string.size);
@@ -712,21 +742,29 @@ fn resolve(
                         "Start writing contents of {} to output\n",
                         component_in_hash.name
                     );
+                    for arg_index in 0..component_tag.args.count {
+                        let arg = component_tag.args.first.plus(arg_index);
+                        let arg = arg.get_ref();
+                        log_debug!("argument: #{}#=#{}#\n", arg.name, arg.value);
+                    }
                     resolve(
                         memory,
                         &mut memory.output,
                         &component_in_hash.contents,
                         components,
                         input_dir,
+                        Some(&component_tag.args),
                     );
                     log_debug!(
                         "Finish writing contents of {} to output\n",
                         component_in_hash.name
                     );
                     log_debug_line_sep();
+                    argument_memory.reset();
                 }
             };
         }
+        argument_memory.end();
     }
 
     // NOTE(sen) All output should be in the output arena at this point
