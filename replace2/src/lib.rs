@@ -790,7 +790,18 @@ fn resolve(
                         result
                     };
                     if let Some(arg_value) = arg_value {
-                        output_memory.push_and_copy(arg_value.ptr, arg_value.size);
+                        log_debug_line_sep();
+                        log_debug!("Start writing argument {} to output\n", arg_name);
+                        resolve(
+                            memory,
+                            &mut memory.output,
+                            &arg_value,
+                            components,
+                            input_dir,
+                            None, // TODO(sen) What do we want here?
+                        );
+                        log_debug!("Finish writing argument {} to output\n", arg_name);
+                        log_debug_line_sep();
                     } else {
                         // TODO(sen) Error - argument used but not found
                     }
