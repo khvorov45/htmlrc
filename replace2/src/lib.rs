@@ -525,6 +525,10 @@ impl Tokeniser {
         self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric())
     }
 
+    fn advance_until_not_whitespace(&mut self) -> usize {
+        self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace())
+    }
+
     fn next_token(&mut self, argument_memory: &mut MemoryArena) -> Option<Token> {
         let token_type = self.current_token()?;
         match token_type {
@@ -551,7 +555,7 @@ impl Tokeniser {
                     },
                 };
                 loop {
-                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                    self.advance_until_not_whitespace();
                     if !self.this.deref().is_ascii_alphabetic() {
                         break;
                     }
@@ -561,13 +565,13 @@ impl Tokeniser {
                         ptr: arg_name_base,
                         size: arg_name_size,
                     };
-                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                    self.advance_until_not_whitespace();
                     if self.this.deref() != b'=' {
                         // TODO(sen) Error - unexpected argument
                         break;
                     }
                     self.advance();
-                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
+                    self.advance_until_not_whitespace();
                     if self.this.deref() != b'"' {
                         // TODO(sen) Error - unexpected argument
                         break;
