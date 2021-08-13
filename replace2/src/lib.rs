@@ -490,10 +490,10 @@ impl Tokeniser {
         }
     }
 
-    fn advance(&mut self, offset: usize) -> bool {
-        if let Some(ptr) = self.peek(offset) {
+    fn advance(&mut self) -> bool {
+        if let Some(ptr) = self.peek(1) {
             self.this = ptr;
-            self.this_index += offset;
+            self.this_index += 1;
             true
         } else if self.this_index == self.last_index {
             // NOTE(sen) This should make it impossible to peek anything
@@ -514,7 +514,7 @@ impl Tokeniser {
                 break;
             }
             counter += 1;
-            if !self.advance(1) {
+            if !self.advance() {
                 break;
             }
         }
@@ -532,7 +532,7 @@ impl Tokeniser {
                 Some(Token::String(String { ptr: base, size }))
             }
             TokenType::ComponentTag => {
-                self.advance(1);
+                self.advance();
                 let name_base = self.this;
                 let name_size =
                     self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
@@ -564,17 +564,17 @@ impl Tokeniser {
                         // TODO(sen) Error - unexpected argument
                         break;
                     }
-                    self.advance(1);
+                    self.advance();
                     self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace());
                     if self.this.deref() != b'"' {
                         // TODO(sen) Error - unexpected argument
                         break;
                     }
-                    self.advance(1);
+                    self.advance();
                     let arg_value_base = self.this;
                     let arg_value_size =
                         self.advance_until(|tokeniser| tokeniser.this.deref() == b'"');
-                    self.advance(1);
+                    self.advance();
                     let arg_value = String {
                         ptr: arg_value_base,
                         size: arg_value_size,
@@ -589,9 +589,9 @@ impl Tokeniser {
                     tag.args.count += 1;
                 }
                 if self.this.deref() == b'/' {
-                    self.advance(1);
+                    self.advance();
                     if self.this.deref() == b'>' {
-                        self.advance(1);
+                        self.advance();
                         Some(Token::ComponentTag(tag))
                     } else {
                         // TODO(sen) Error - unexpected opening
@@ -603,7 +603,7 @@ impl Tokeniser {
                 }
             }
             TokenType::Argument => {
-                self.advance(1);
+                self.advance();
                 let arg_name_base = self.this;
                 let arg_name_size =
                     self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
