@@ -827,29 +827,23 @@ impl<'a> Log<'a> {
 
 impl<'a> Write for Log<'a> {
     fn write_str(&mut self, string: &str) -> core::fmt::Result {
-        let bytes = string.as_bytes();
-        let remainder = &mut self.buf[self.offset..];
-        if remainder.len() >= bytes.len() {
-            let dest = &mut remainder[..bytes.len()];
-            dest.copy_from_slice(bytes);
-            self.offset += bytes.len();
-            Ok(())
-        } else {
-            Err(core::fmt::Error)
-        }
+        let source_full = string.as_bytes();
+        let dest_full = &mut self.buf[self.offset..];
+        let bytes_to_write = source_full.len().min(dest_full.len());
+        let source = &source_full[..bytes_to_write];
+        let dest = &mut dest_full[..bytes_to_write];
+        dest.copy_from_slice(source);
+        self.offset += bytes_to_write;
+        Ok(())
     }
 }
 
 #[macro_export]
 macro_rules! log {
     ($out:expr, $($arg:tt)*) => {
-        // TODO(sen) Better buffer handling here
         let mut buf = [0; 100];
-        if ::core::write!(Log::new(&mut buf), $($arg)*).is_ok() {
-            $out(buf.as_ptr(), buf.len());
-        } else {
-            $crate::platform::write_stderr("couldn't write to buffer\n");
-        }
+        let _ = ::core::write!(Log::new(&mut buf), $($arg)*);
+        $out(buf.as_ptr(), buf.len());
     };
 }
 
