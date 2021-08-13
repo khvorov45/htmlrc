@@ -870,6 +870,7 @@ macro_rules! log_info {
     ($($arg:tt)*) => (log!(crate::platform::write_stdout_raw, $($arg)*))
 }
 
+#[allow(dead_code)]
 fn debug_line_raw(string: &String) {
     log_debug_line_sep();
     platform::write_stdout("#");
