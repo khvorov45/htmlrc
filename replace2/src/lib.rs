@@ -613,6 +613,17 @@ impl Tokeniser {
                     None
                 }
             }
+            TokenType::Argument => {
+                self.advance(1);
+                let arg_name_base = self.this;
+                let arg_name_size =
+                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
+                let arg_name = String {
+                    ptr: arg_name_base,
+                    size: arg_name_size,
+                };
+                Some(Token::Argument(arg_name))
+            }
         }
     }
 
@@ -627,6 +638,13 @@ impl Tokeniser {
                     result = TokenType::ComponentTag;
                 }
             }
+        } else if value0 == b'$' {
+            if let Some(ptr1) = self.peek(1) {
+                let value1 = ptr1.deref();
+                if value1.is_ascii_alphabetic() {
+                    result = TokenType::Argument;
+                }
+            }
         }
         Some(result)
     }
@@ -636,11 +654,13 @@ impl Tokeniser {
 enum TokenType {
     String,
     ComponentTag,
+    Argument,
 }
 
 enum Token {
     String(String),
     ComponentTag(ComponentTag),
+    Argument(String),
 }
 
 struct ComponentTag {
@@ -648,9 +668,6 @@ struct ComponentTag {
     args: Arguments,
 }
 
-// TODO(sen) Rework this to handle components in a cleaner way by
-// reading the input as a token stream where the tokens are plain strings to be
-// pasted or components whose (resolved) contents need to be pasted
 fn resolve(
     memory: *mut Memory,
     output_memory: *mut MemoryArena,
@@ -761,6 +778,28 @@ fn resolve(
                     );
                     log_debug_line_sep();
                     argument_memory.reset();
+                }
+                Token::Argument(arg_name) => {
+                    log_debug!("Found argument #{}#\n", arg_name);
+                    let arg_value = {
+                        let mut result = None;
+                        if let Some(args_table) = args {
+                            for arg_index in 0..args_table.count {
+                                let arg = args_table.first.plus(arg_index);
+                                let arg = arg.get_ref();
+                                if arg.name == arg_name {
+                                    result = Some(arg.value);
+                                    break;
+                                }
+                            }
+                        }
+                        result
+                    };
+                    if let Some(arg_value) = arg_value {
+                        output_memory.push_and_copy(arg_value.ptr, arg_value.size);
+                    } else {
+                        // TODO(sen) Error - argument used but not found
+                    }
                 }
             };
         }
