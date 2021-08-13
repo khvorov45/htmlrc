@@ -812,8 +812,6 @@ fn resolve(
 
 // SECTION Debug logging
 
-// TODO(sen) Make debug logging go away for release builds
-
 use core::fmt::Write;
 
 struct Log<'a> {
@@ -857,7 +855,10 @@ macro_rules! log {
 
 #[macro_export]
 macro_rules! log_debug {
-    ($($arg:tt)*) => (log!(crate::platform::write_stdout_raw, $($arg)*))
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        log!(crate::platform::write_stdout_raw, $($arg)*)
+    }
 }
 
 #[macro_export]
@@ -872,11 +873,14 @@ macro_rules! log_info {
 
 #[allow(dead_code)]
 fn debug_line_raw(string: &String) {
-    log_debug_line_sep();
-    platform::write_stdout("#");
-    platform::write_stdout_raw(string.ptr, string.size);
-    platform::write_stdout("#\n");
-    log_debug_line_sep();
+    #[cfg(debug_assertions)]
+    {
+        log_debug_line_sep();
+        platform::write_stdout("#");
+        platform::write_stdout_raw(string.ptr, string.size);
+        platform::write_stdout("#\n");
+        log_debug_line_sep();
+    }
 }
 
 fn log_debug_line_sep() {
