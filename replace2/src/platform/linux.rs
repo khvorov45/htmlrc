@@ -20,17 +20,6 @@ pub(crate) fn write_stdout_raw(ptr: *const u8, size: usize) {
     unsafe { write(STDOUT_FILENO, ptr as *const _, size) };
 }
 
-pub(crate) fn write_stderr(text: &str) {
-    use libc::{write, STDERR_FILENO};
-    unsafe {
-        write(
-            STDERR_FILENO,
-            text.as_ptr() as *const _,
-            text.as_bytes().len(),
-        )
-    };
-}
-
 pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
     use libc::{write, STDERR_FILENO};
     unsafe { write(STDERR_FILENO, ptr as *const _, size) };
