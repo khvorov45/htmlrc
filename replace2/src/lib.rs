@@ -121,6 +121,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
 
             debug_assert!(memory.filepath.temporary_count == 0);
             debug_assert!(memory.input.temporary_count == 1);
+            debug_assert!(memory.component_arguments.temporary_count == 0);
 
             let mut filepath_memory = memory.filepath.begin_temporary();
             let output_dir_path = String::from_s(filepath_memory.arena.as_ref_mut(), &output_dir);
