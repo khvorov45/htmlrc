@@ -521,6 +521,10 @@ impl Tokeniser {
         counter
     }
 
+    fn advance_until_not_alphanumeric(&mut self) -> usize {
+        self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric())
+    }
+
     fn next_token(&mut self, argument_memory: &mut MemoryArena) -> Option<Token> {
         let token_type = self.current_token()?;
         match token_type {
@@ -534,8 +538,7 @@ impl Tokeniser {
             TokenType::ComponentTag => {
                 self.advance();
                 let name_base = self.this;
-                let name_size =
-                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
+                let name_size = self.advance_until_not_alphanumeric();
                 let name = String {
                     ptr: name_base,
                     size: name_size,
@@ -553,8 +556,7 @@ impl Tokeniser {
                         break;
                     }
                     let arg_name_base = self.this;
-                    let arg_name_size = self
-                        .advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
+                    let arg_name_size = self.advance_until_not_alphanumeric();
                     let arg_name = String {
                         ptr: arg_name_base,
                         size: arg_name_size,
@@ -605,8 +607,7 @@ impl Tokeniser {
             TokenType::Argument => {
                 self.advance();
                 let arg_name_base = self.this;
-                let arg_name_size =
-                    self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_alphanumeric());
+                let arg_name_size = self.advance_until_not_alphanumeric();
                 let arg_name = String {
                     ptr: arg_name_base,
                     size: arg_name_size,
