@@ -37,10 +37,10 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     let (total_html_file_count, total_html_file_size) = (512, 512 * 128 * KILOBYTE);
 
     let filepath_size = MAX_PATH_BYTES;
-    let components_size = total_html_file_count * core::mem::size_of::<Component>();
+    let components_size = total_html_file_count * core::mem::size_of::<NameValue>();
     let component_names_size = total_html_file_count * MAX_FILENAME_BYTES;
     let component_contents_size = total_html_file_size;
-    let component_arguments_size = 512 * core::mem::size_of::<Argument>(); // TODO(sen) How many?
+    let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
     let input_size = total_html_file_size;
     let output_size = 10 * MEGABYTE;
     let total_size = filepath_size
@@ -92,7 +92,7 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
             }
         };
 
-        let mut components = Components {
+        let mut components = Map {
             first: core::ptr::null(),
             count: 0,
         };
@@ -456,24 +456,12 @@ fn char_is_valid(ch: char) -> bool {
     ch.is_ascii() || ch == '\0'
 }
 
-struct Components {
-    // TODO(sen) Hash-based lookups
-    first: *const Component,
+struct Map {
+    first: *const NameValue,
     count: usize,
 }
 
-struct Component {
-    name: String,
-    /// Leading and trailing whitespaces are removed
-    contents: String,
-}
-
-struct Arguments {
-    first: *const Argument,
-    count: usize,
-}
-
-struct Argument {
+struct NameValue {
     name: String,
     value: String,
 }
@@ -554,7 +542,7 @@ impl Tokeniser {
                 };
                 let mut tag = ComponentTag {
                     name,
-                    args: Arguments {
+                    args: Map {
                         first: core::ptr::null(),
                         count: 0,
                     },
@@ -591,7 +579,7 @@ impl Tokeniser {
                         ptr: arg_value_base,
                         size: arg_value_size,
                     };
-                    let mut arg_ptr = argument_memory.push_struct::<Argument>();
+                    let mut arg_ptr = argument_memory.push_struct::<NameValue>();
                     let arg = arg_ptr.as_ref_mut();
                     arg.name = arg_name;
                     arg.value = arg_value;
@@ -666,16 +654,16 @@ enum Token {
 
 struct ComponentTag {
     name: String,
-    args: Arguments,
+    args: Map,
 }
 
 fn resolve(
     memory: *mut Memory,
     output_memory: *mut MemoryArena,
     string: &String,
-    components: &mut Components,
+    components: &mut Map,
     input_dir: &String,
-    args: Option<&Arguments>,
+    args: Option<&Map>,
 ) -> String {
     // TODO(sen) Cleaner way to handle memory here
     let memory = unsafe { &mut *memory };
@@ -695,14 +683,14 @@ fn resolve(
                 }
                 Token::ComponentTag(component_tag) => {
                     // NOTE(sen) Find the component in cache or read it anew and store it in cache
-                    let component_in_hash = {
+                    let component_in_cache = {
                         // TODO(sen) Replace with a hash-based lookup
                         let mut lookup_result = None;
                         for component_index in 0..components.count {
-                            let component_in_hash = components.first.plus(component_index);
-                            let component_in_hash_value = unsafe { &*component_in_hash };
-                            if component_in_hash_value.name == component_tag.name {
-                                lookup_result = Some(component_in_hash_value);
+                            let component_in_cache = components.first.plus(component_index);
+                            let component_in_cache_value = unsafe { &*component_in_cache };
+                            if component_in_cache_value.name == component_tag.name {
+                                lookup_result = Some(component_in_cache_value);
                                 break;
                             }
                         }
@@ -713,7 +701,7 @@ fn resolve(
                             log_debug!("did not find component {} in cache\n", component_tag.name);
                             // NOTE(sen) This should be zeroed since the arena is never overwritten
                             let new_component =
-                                unsafe { &mut *memory.components.push_struct::<Component>() };
+                                unsafe { &mut *memory.components.push_struct::<NameValue>() };
 
                             // NOTE(sen) Name from use
                             new_component.name = {
@@ -742,7 +730,7 @@ fn resolve(
                             if let Ok(new_component_contents_raw) =
                                 new_component_contents_raw_result
                             {
-                                new_component.contents = new_component_contents_raw.trim()
+                                new_component.value = new_component_contents_raw.trim()
                             } else {
                                 // TODO(sen) Error - component used but not found
                             }
@@ -758,7 +746,7 @@ fn resolve(
                     log_debug_line_sep();
                     log_debug!(
                         "Start writing contents of {} to output\n",
-                        component_in_hash.name
+                        component_in_cache.name
                     );
                     for arg_index in 0..component_tag.args.count {
                         let arg = component_tag.args.first.plus(arg_index);
@@ -768,14 +756,14 @@ fn resolve(
                     resolve(
                         memory,
                         &mut memory.output,
-                        &component_in_hash.contents,
+                        &component_in_cache.value,
                         components,
                         input_dir,
                         Some(&component_tag.args),
                     );
                     log_debug!(
                         "Finish writing contents of {} to output\n",
-                        component_in_hash.name
+                        component_in_cache.name
                     );
                     log_debug_line_sep();
                     argument_memory.reset();
