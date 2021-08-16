@@ -2,6 +2,8 @@
 mod linux;
 
 #[cfg(target_os = "linux")]
+pub use linux::Arguments;
+#[cfg(target_os = "linux")]
 pub(crate) use linux::*;
 
 #[cfg(target_os = "windows")]

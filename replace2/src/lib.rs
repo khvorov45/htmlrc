@@ -14,7 +14,29 @@ pub fn handle_panic(info: &core::panic::PanicInfo) {
     platform::exit();
 }
 
-pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
+pub struct RunArguments<'a> {
+    input_dir: &'a str,
+    input_file_name: &'a str,
+    output_dir: &'a str,
+}
+
+impl<'a> Default for RunArguments<'a> {
+    fn default() -> Self {
+        Self {
+            input_dir: "src",
+            input_file_name: "index.html",
+            output_dir: "build",
+        }
+    }
+}
+
+pub use platform::Arguments as PlatformArguments;
+
+pub fn parse_arguments<'a>(_platform_args: PlatformArguments) -> RunArguments<'a> {
+    RunArguments::default()
+}
+
+pub fn run(args: RunArguments) {
     use platform::{
         allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
         last_cycle_count, read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
@@ -23,9 +45,9 @@ pub fn run(input_dir: &str, input_file_name: &str, output_dir: &str) {
     let program_start_time = get_timespec_now();
     let program_start_cycle = last_cycle_count();
 
-    let input_dir = input_dir.to_string();
-    let input_file_name = input_file_name.to_string();
-    let output_dir = output_dir.to_string();
+    let input_dir = args.input_dir.to_string();
+    let input_file_name = args.input_file_name.to_string();
+    let output_dir = args.output_dir.to_string();
 
     log_debug_title("START");
     log_debug!("Input directory: {}\n", &input_dir);

@@ -2,16 +2,19 @@
 #![no_main]
 #![windows_subsystem = "console"]
 
+use replace2::{handle_panic, parse_arguments, run, PlatformArguments};
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    replace2::handle_panic(info);
+    handle_panic(info);
     loop {}
 }
 
 #[cfg(target_os = "linux")]
 #[no_mangle]
-pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
-    replace2::run("input", "page-plain.html", "build");
+pub extern "C" fn main(argc: isize, argv: *const *const u8) -> isize {
+    let args = parse_arguments(PlatformArguments { argc, argv });
+    run(args);
     0
 }
 

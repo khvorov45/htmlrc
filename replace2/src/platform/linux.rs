@@ -6,6 +6,11 @@ pub(crate) const MAX_FILENAME_BYTES: usize = 256;
 
 enum Void {}
 
+pub struct Arguments {
+    pub argc: isize,
+    pub argv: *const *const u8,
+}
+
 extern "C" {
     fn write(file: i32, buffer: *const Void, count: usize) -> isize;
     fn __errno_location() -> *mut i32;
