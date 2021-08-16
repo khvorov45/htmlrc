@@ -11,7 +11,7 @@ const MEGABYTE: usize = KILOBYTE * 1024;
 
 pub fn handle_panic(info: &core::panic::PanicInfo) {
     log_error!("{}\n", info);
-    platform::exit();
+    platform::os::exit();
 }
 
 pub struct RunArguments<'a> {
@@ -30,7 +30,7 @@ impl<'a> Default for RunArguments<'a> {
     }
 }
 
-pub use platform::Arguments as PlatformArguments;
+pub use platform::os::Arguments as PlatformArguments;
 
 pub fn parse_arguments<'a>(_platform_args: PlatformArguments) -> RunArguments<'a> {
     RunArguments::default()
@@ -38,8 +38,11 @@ pub fn parse_arguments<'a>(_platform_args: PlatformArguments) -> RunArguments<'a
 
 pub fn run(args: RunArguments) {
     use platform::{
-        allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
-        last_cycle_count, read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
+        arch::last_cycle_count,
+        os::{
+            allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
+            read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
+        },
     };
 
     let program_start_time = get_timespec_now();
@@ -692,6 +695,8 @@ fn resolve(
     input_dir: &String,
     args: Option<&Map>,
 ) -> String {
+    use platform::os::{read_file, PATH_SEP};
+
     // TODO(sen) Cleaner way to handle memory here
     let memory = unsafe { &mut *memory };
     let output_memory = unsafe { &mut *output_memory };
@@ -744,15 +749,13 @@ fn resolve(
                             let new_component_path = String::from_scss(
                                 filepath_memory.arena.as_ref_mut(),
                                 input_dir,
-                                platform::PATH_SEP,
+                                PATH_SEP,
                                 &new_component.name,
                                 &".html".to_string(),
                             );
                             log_debug!("reading new component from {}\n", new_component_path);
-                            let new_component_contents_raw_result = platform::read_file(
-                                &mut memory.component_contents,
-                                &new_component_path,
-                            );
+                            let new_component_contents_raw_result =
+                                read_file(&mut memory.component_contents, &new_component_path);
                             filepath_memory.end();
                             if let Ok(new_component_contents_raw) =
                                 new_component_contents_raw_result
@@ -884,18 +887,18 @@ macro_rules! log {
 macro_rules! log_debug {
     ($($arg:tt)*) => {
         #[cfg(debug_assertions)]
-        log!(crate::platform::write_stdout_raw, $($arg)*)
+        log!(crate::platform::os::write_stdout_raw, $($arg)*)
     }
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($($arg:tt)*) => (log!(crate::platform::write_stderr_raw, $($arg)*))
+    ($($arg:tt)*) => (log!(crate::platform::os::write_stderr_raw, $($arg)*))
 }
 
 #[macro_export]
 macro_rules! log_info {
-    ($($arg:tt)*) => (log!(crate::platform::write_stdout_raw, $($arg)*))
+    ($($arg:tt)*) => (log!(crate::platform::os::write_stdout_raw, $($arg)*))
 }
 
 #[allow(dead_code)]
@@ -903,9 +906,9 @@ fn debug_line_raw(string: &String) {
     #[cfg(debug_assertions)]
     {
         log_debug_line_sep();
-        platform::write_stdout("#");
-        platform::write_stdout_raw(string.ptr, string.size);
-        platform::write_stdout("#\n");
+        platform::os::write_stdout("#");
+        platform::os::write_stdout_raw(string.ptr, string.size);
+        platform::os::write_stdout("#\n");
         log_debug_line_sep();
     }
 }

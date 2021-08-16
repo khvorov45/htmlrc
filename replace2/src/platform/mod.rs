@@ -1,19 +1,14 @@
 #[cfg(target_os = "linux")]
-mod linux;
-
+pub(crate) mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::Arguments;
-#[cfg(target_os = "linux")]
-pub(crate) use linux::*;
+pub(crate) use linux as os;
 
 #[cfg(target_os = "windows")]
-mod windows;
-
+pub(crate) mod windows;
 #[cfg(target_os = "windows")]
-pub(crate) use windows::*;
+pub(crate) use windows as os;
 
 #[cfg(target_arch = "x86_64")]
-mod x86_64;
-
+pub(crate) mod x86_64;
 #[cfg(target_arch = "x86_64")]
-pub(crate) use x86_64::*;
+pub(crate) use x86_64 as arch;
