@@ -406,29 +406,33 @@ impl String {
 
     /// Does not modify memory
     fn trim(&self) -> String {
-        let mut byte = self.ptr;
-        let mut first_non_whitespace = 0;
-        while byte.deref().is_ascii_whitespace() {
-            byte = byte.plus(1);
-            first_non_whitespace += 1;
+        let mut result = String {
+            ptr: self.ptr,
+            size: self.size,
+        };
+        if self.size > 0 {
+            let mut byte = self.ptr;
+            let mut first_non_whitespace = 0;
+            while byte.deref().is_ascii_whitespace() {
+                byte = byte.plus(1);
+                first_non_whitespace += 1;
+            }
+            byte = self.ptr.plus(self.size - 1);
+            let mut last_non_whitespace = self.size - 1;
+            while byte.deref().is_ascii_whitespace() {
+                byte = byte.minus(1);
+                last_non_whitespace -= 1;
+            }
+            if last_non_whitespace < first_non_whitespace {
+                // NOTE(sen) This is a whitespace-only string
+                result.ptr = self.ptr;
+                result.size = 0
+            } else {
+                result.ptr = self.ptr.plus(first_non_whitespace);
+                result.size = last_non_whitespace - first_non_whitespace + 1;
+            }
         }
-        byte = self.ptr.plus(self.size - 1);
-        let mut last_non_whitespace = self.size - 1;
-        while byte.deref().is_ascii_whitespace() {
-            byte = byte.minus(1);
-            last_non_whitespace -= 1;
-        }
-        let ptr;
-        let size;
-        if last_non_whitespace < first_non_whitespace {
-            // NOTE(sen) This is a whitespace-only string
-            ptr = self.ptr;
-            size = 0
-        } else {
-            ptr = self.ptr.plus(first_non_whitespace);
-            size = last_non_whitespace - first_non_whitespace + 1;
-        }
-        String { ptr, size }
+        result
     }
 }
 
