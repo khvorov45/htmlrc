@@ -539,6 +539,11 @@ impl Tokeniser {
         }
     }
 
+    fn peek2(&self, offset: usize) -> Option<(*const u8, *const u8)> {
+        let result = (self.peek(offset)?, self.peek(offset + 1)?);
+        Some(result)
+    }
+
     fn advance(&mut self) -> bool {
         if let Some(ptr) = self.peek(1) {
             self.this = ptr;
@@ -588,6 +593,7 @@ impl Tokeniser {
                 });
                 Some(Token::String(String { ptr: base, size }))
             }
+
             TokenType::ComponentTag => {
                 self.advance();
                 let name_base = self.this;
@@ -657,6 +663,7 @@ impl Tokeniser {
                     None
                 }
             }
+
             TokenType::Argument => {
                 self.advance();
                 let arg_name_base = self.this;
@@ -667,6 +674,31 @@ impl Tokeniser {
                 };
                 Some(Token::Argument(arg_name))
             }
+
+            TokenType::InlineComponent => {
+                self.advance();
+                self.advance();
+                let name_base = self.this;
+                let name_size = self.advance_until_not_alphanumeric();
+                let name = String {
+                    ptr: name_base,
+                    size: name_size,
+                };
+                self.advance_until(|tokeniser| tokeniser.this.deref() == b'\n');
+                self.advance();
+                let value_base = self.this;
+                let value_size_plus_one = self.advance_until(|tokeniser| {
+                    let this_value = tokeniser.this.deref();
+                    let prev_value = tokeniser.this.minus(1).deref();
+                    this_value == b'}' && prev_value == b'}'
+                });
+                let value = String {
+                    ptr: value_base,
+                    size: value_size_plus_one - 1,
+                };
+                self.advance();
+                Some(Token::InlineComponent(NameValue { name, value }))
+            }
         }
     }
 
@@ -674,21 +706,17 @@ impl Tokeniser {
         let ptr0 = self.peek(0)?;
         let value0 = ptr0.deref();
         let mut result = TokenType::String;
-        if value0 == b'<' {
-            if let Some(ptr1) = self.peek(1) {
-                let value1 = ptr1.deref();
-                if value1.is_ascii_uppercase() {
-                    result = TokenType::ComponentTag;
-                }
-            }
-        } else if value0 == b'$' {
-            if let Some(ptr1) = self.peek(1) {
-                let value1 = ptr1.deref();
-                if value1.is_ascii_alphabetic() {
-                    result = TokenType::Argument;
-                }
+        if let Some(ptr1) = self.peek(1) {
+            let value1 = ptr1.deref();
+            if value0 == b'<' && value1.is_ascii_uppercase() {
+                result = TokenType::ComponentTag;
+            } else if value0 == b'$' && value1.is_ascii_alphabetic() {
+                result = TokenType::Argument;
+            } else if value0 == b'{' && value1 == b'{' {
+                result = TokenType::InlineComponent;
             }
         }
+
         Some(result)
     }
 }
@@ -698,12 +726,14 @@ enum TokenType {
     String,
     ComponentTag,
     Argument,
+    InlineComponent,
 }
 
 enum Token {
     String(String),
     ComponentTag(ComponentTag),
     Argument(String),
+    InlineComponent(NameValue),
 }
 
 struct ComponentTag {
@@ -860,6 +890,12 @@ fn resolve(
                         log_error!("Argument {} used but not passed\n", arg_name);
                         return Err(Error {});
                     }
+                }
+                Token::InlineComponent(inline_component) => {
+                    // TODO(sen) Handle the inline component
+                    log_debug!("INLINE COMPONENT\n");
+                    debug_line_raw(&inline_component.name);
+                    debug_line_raw(&inline_component.value);
                 }
             };
         }
