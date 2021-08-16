@@ -11,7 +11,7 @@ pub struct Arguments {
     pub argv: *const *const u8,
 }
 
-extern "C" {
+extern "system" {
     fn write(file: i32, buffer: *const Void, count: usize) -> isize;
     fn __errno_location() -> *mut i32;
     fn open(path: *const i8, flag: i32) -> i32;
@@ -40,7 +40,7 @@ pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
 }
 
 pub(crate) fn exit() {
-    extern "C" {
+    extern "system" {
         fn exit(code: i32);
     }
     unsafe {
@@ -49,7 +49,7 @@ pub(crate) fn exit() {
 }
 
 pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
-    extern "C" {
+    extern "system" {
         fn creat(path: *const i8, mode: u32) -> i32;
     }
     const O_WRONLY: i32 = 1;
@@ -90,7 +90,7 @@ pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
 }
 
 pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<String> {
-    extern "C" {
+    extern "system" {
         fn fstat(file: i32, buffer: *mut stat) -> i32;
         fn read(file: i32, buffer: *mut Void, bytes_to_read: usize) -> isize;
     }
@@ -129,7 +129,7 @@ pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<Strin
 }
 
 pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
-    extern "C" {
+    extern "system" {
         fn opendir(dirname: *const i8) -> *mut Void;
         fn mkdir(path: *const i8, mode: u32) -> i32;
         fn closedir(dir: *mut Void) -> i32;
@@ -163,7 +163,7 @@ pub(crate) fn create_dir_if_not_exists(path: &String) -> Result<()> {
 }
 
 pub(crate) fn allocate_and_clear(total_size: usize) -> Result<*mut u8> {
-    extern "C" {
+    extern "system" {
         fn mmap(
             addr: *mut Void,
             len: usize,
@@ -205,7 +205,7 @@ pub(crate) struct TimeSpec {
 }
 
 pub(crate) fn get_timespec_now() -> TimeSpec {
-    extern "C" {
+    extern "system" {
         fn clock_gettime(clk_id: i32, tp: *mut timespec) -> i32;
     }
     #[repr(C)]

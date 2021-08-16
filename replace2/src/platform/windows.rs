@@ -10,7 +10,7 @@ enum Void {}
 /// https://docs.microsoft.com/en-us/windows/console/getstdhandle
 const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
 
-extern "C" {
+extern "system" {
     /// https://docs.microsoft.com/en-us/windows/console/getstdhandle
     fn GetStdHandle(handle: u32) -> *mut Void;
     /// https://docs.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-writefileex
@@ -82,7 +82,7 @@ pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
     };
 }
 
-extern "C" {
+extern "system" {
     /// https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-exitprocess
     fn ExitProcess(code: u32);
 }
