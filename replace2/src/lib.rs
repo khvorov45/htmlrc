@@ -539,11 +539,6 @@ impl Tokeniser {
         }
     }
 
-    fn peek2(&self, offset: usize) -> Option<(*const u8, *const u8)> {
-        let result = (self.peek(offset)?, self.peek(offset + 1)?);
-        Some(result)
-    }
-
     fn advance(&mut self) -> bool {
         if let Some(ptr) = self.peek(1) {
             self.this = ptr;
