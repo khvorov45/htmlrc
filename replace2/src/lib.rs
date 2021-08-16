@@ -150,45 +150,49 @@ pub fn run(args: RunArguments) {
         if let Ok(input_string) = read_file(input_memory.arena.as_ref_mut(), &input_file_path) {
             log_debug!("started resolution of input at {}\n", input_file_path);
             filepath_memory.end();
-            let result = resolve(
+            if let Ok(result) = resolve(
                 &mut memory,
                 &mut memory.output,
                 &input_string,
                 &mut components,
                 &input_dir,
                 None,
-            );
-            log_debug!("input resolution finished\n");
+            ) {
+                log_debug!("input resolution finished\n");
 
-            debug_assert!(memory.filepath.temporary_count == 0);
-            debug_assert!(memory.input.temporary_count == 1);
-            debug_assert!(memory.component_arguments.temporary_count == 0);
+                debug_assert!(memory.filepath.temporary_count == 0);
+                debug_assert!(memory.input.temporary_count == 1);
+                debug_assert!(memory.component_arguments.temporary_count == 0);
 
-            let mut filepath_memory = memory.filepath.begin_temporary();
-            let output_dir_path = String::from_s(filepath_memory.arena.as_ref_mut(), &output_dir);
-            if create_dir_if_not_exists(&output_dir_path).is_ok() {
-                filepath_memory.reset();
+                let mut filepath_memory = memory.filepath.begin_temporary();
+                let output_dir_path =
+                    String::from_s(filepath_memory.arena.as_ref_mut(), &output_dir);
+                if create_dir_if_not_exists(&output_dir_path).is_ok() {
+                    filepath_memory.reset();
 
-                let output_file_path = String::from_scs(
-                    filepath_memory.arena.as_ref_mut(),
-                    &output_dir,
-                    PATH_SEP,
-                    &input_file_name,
-                );
-
-                #[allow(clippy::branches_sharing_code)]
-                if write_file(&output_file_path, &result).is_ok() {
-                    log_info!("Wrote output to {}\n", output_file_path);
-                    log_debug!(
-                        "Completed in {:.5}s, {}cycles\n",
-                        get_seconds_from(&program_start_time),
-                        last_cycle_count() - program_start_cycle
+                    let output_file_path = String::from_scs(
+                        filepath_memory.arena.as_ref_mut(),
+                        &output_dir,
+                        PATH_SEP,
+                        &input_file_name,
                     );
+
+                    #[allow(clippy::branches_sharing_code)]
+                    if write_file(&output_file_path, &result).is_ok() {
+                        log_info!("Wrote output to {}\n", output_file_path);
+                        log_debug!(
+                            "Completed in {:.5}s, {}cycles\n",
+                            get_seconds_from(&program_start_time),
+                            last_cycle_count() - program_start_cycle
+                        );
+                    } else {
+                        log_error!("Failed to write to output file {}\n", output_file_path);
+                    }
                 } else {
-                    log_error!("Failed to write to output file {}\n", output_file_path);
+                    log_error!("Failed to create output directory {}\n", output_dir);
                 }
             } else {
-                log_error!("Failed to create output directory {}\n", output_dir);
+                log_error!("Resolution failed\n");
             }
         } else {
             log_error!("Failed to read input from {}\n", input_file_path);
@@ -710,7 +714,7 @@ fn resolve(
     components: &mut Map,
     input_dir: &String,
     args: Option<&Map>,
-) -> String {
+) -> Result<String> {
     use platform::os::{read_file, PATH_SEP};
 
     // TODO(sen) Cleaner way to handle memory here
@@ -778,7 +782,12 @@ fn resolve(
                             {
                                 new_component.value = new_component_contents_raw.trim()
                             } else {
-                                // TODO(sen) Error - component used but not found
+                                log_error!(
+                                    "Component {} used but not found in {}\n",
+                                    new_component.name,
+                                    input_dir
+                                );
+                                return Err(Error {});
                             }
 
                             if components.count == 0 {
@@ -806,7 +815,7 @@ fn resolve(
                         components,
                         input_dir,
                         Some(&component_tag.args),
-                    );
+                    )?;
                     log_debug!(
                         "Finish writing contents of {} to output\n",
                         component_in_cache.name
@@ -840,11 +849,12 @@ fn resolve(
                             components,
                             input_dir,
                             None, // TODO(sen) What do we want here?
-                        );
+                        )?;
                         log_debug!("Finish writing argument {} to output\n", arg_name);
                         log_debug_line_sep();
                     } else {
-                        // TODO(sen) Error - argument used but not found
+                        log_error!("Argument {} used but not passed\n", arg_name);
+                        return Err(Error {});
                     }
                 }
             };
@@ -853,13 +863,12 @@ fn resolve(
     }
 
     // NOTE(sen) All output should be in the output arena at this point
-    #[allow(clippy::let_and_return)]
     let result = String {
         ptr: output_base,
         size: output_memory.used - output_used_before,
     };
 
-    result
+    Ok(result)
 }
 
 // SECTION Debug logging
