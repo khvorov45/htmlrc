@@ -2,7 +2,7 @@
 #![no_main]
 #![windows_subsystem = "console"]
 
-use replace2::{handle_panic, parse_arguments, run, PlatformArguments};
+use htmlrc::{handle_panic, parse_arguments, run, PlatformArguments};
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -21,7 +21,7 @@ pub extern "C" fn main(argc: isize, argv: *const *const u8) -> isize {
 #[cfg(target_os = "windows")]
 #[no_mangle]
 pub extern "C" fn mainCRTStartup() -> ! {
-    replace2::run("input", "page-plain.html", "build");
+    htmlrc::run("input", "page-plain.html", "build");
     #[allow(clippy::empty_loop)]
     loop {}
 }

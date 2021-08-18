@@ -17,6 +17,7 @@
     "WRONLY",
     "errno",
     "fstat",
+    "htmlrc",
     "mkdir",
     "mmap",
     "nlink",
