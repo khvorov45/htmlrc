@@ -490,6 +490,18 @@ struct NameValueArray {
     count: usize,
 }
 
+impl NameValueArray {
+    fn find_by_name(&self, name: String) -> Option<*const NameValue> {
+        for index in 0..self.count {
+            let entry = self.first.plus(index);
+            if entry.get_ref().name == name {
+                return Some(entry);
+            }
+        }
+        None
+    }
+}
+
 struct NameValue {
     name: String,
     value: String,
@@ -745,17 +757,9 @@ fn resolve(
                 Token::ComponentTag(component_tag) => {
                     // NOTE(sen) Find the component in cache or read it anew and store it in cache
                     let component_in_cache = {
-                        // TODO(sen) Replace with a hash-based lookup
-                        let mut lookup_result = None;
-                        for component_index in 0..components.count {
-                            let component_in_cache = components.first.plus(component_index);
-                            let component_in_cache_value = unsafe { &*component_in_cache };
-                            if component_in_cache_value.name == component_tag.name {
-                                lookup_result = Some(component_in_cache_value);
-                                break;
-                            }
-                        }
-                        if let Some(component_looked_up) = lookup_result {
+                        if let Some(component_looked_up) =
+                            components.find_by_name(component_tag.name)
+                        {
                             log_debug!("found component {} in cache\n", component_tag.name);
                             component_looked_up
                         } else {
@@ -807,6 +811,8 @@ fn resolve(
                             new_component
                         }
                     };
+                    let component_in_cache = component_in_cache.get_ref();
+
                     log_debug_line_sep();
                     log_debug!(
                         "Start writing contents of {} to output\n",
@@ -834,27 +840,20 @@ fn resolve(
                 }
                 Token::Argument(arg_name) => {
                     log_debug!("Found argument #{}#\n", arg_name);
-                    let arg_value = {
+                    let arg = {
                         let mut result = None;
                         if let Some(args_table) = args {
-                            for arg_index in 0..args_table.count {
-                                let arg = args_table.first.plus(arg_index);
-                                let arg = arg.get_ref();
-                                if arg.name == arg_name {
-                                    result = Some(arg.value);
-                                    break;
-                                }
-                            }
+                            result = args_table.find_by_name(arg_name);
                         }
                         result
                     };
-                    if let Some(arg_value) = arg_value {
+                    if let Some(arg) = arg {
                         log_debug_line_sep();
                         log_debug!("Start writing argument {} to output\n", arg_name);
                         resolve(
                             memory,
                             &mut memory.output,
-                            &arg_value,
+                            &arg.get_ref().value,
                             components,
                             input_dir,
                             None, // TODO(sen) What do we want here?
