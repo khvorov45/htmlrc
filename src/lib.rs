@@ -113,7 +113,7 @@ pub fn run(args: RunArguments) {
             }
         };
 
-        let mut components = Map {
+        let mut components = NameValueArray {
             first: core::ptr::null(),
             count: 0,
         };
@@ -485,7 +485,7 @@ fn char_is_valid(ch: char) -> bool {
     ch.is_ascii() || ch == '\0'
 }
 
-struct Map {
+struct NameValueArray {
     first: *const NameValue,
     count: usize,
 }
@@ -579,7 +579,7 @@ impl Tokeniser {
                 };
                 let mut tag = ComponentTag {
                     name,
-                    args: Map {
+                    args: NameValueArray {
                         first: core::ptr::null(),
                         count: 0,
                     },
@@ -713,16 +713,16 @@ enum Token {
 
 struct ComponentTag {
     name: String,
-    args: Map,
+    args: NameValueArray,
 }
 
 fn resolve(
     memory: *mut Memory,
     output_memory: *mut MemoryArena,
     string: &String,
-    components: &mut Map,
+    components: &mut NameValueArray,
     input_dir: &String,
-    args: Option<&Map>,
+    args: Option<&NameValueArray>,
 ) -> Result<String> {
     use platform::os::{read_file, PATH_SEP};
 
