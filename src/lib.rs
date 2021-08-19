@@ -30,27 +30,7 @@ impl<'a> Default for RunArguments<'a> {
     }
 }
 
-pub use platform::os::Arguments as PlatformArguments;
-
-pub fn parse_arguments<'a>(platform_args: PlatformArguments) -> RunArguments<'a> {
-    let mut result = RunArguments::default();
-    for arg_index in 1..platform_args.argc as usize {
-        let base = platform_args.argv.plus(arg_index).deref();
-        let mut size = 0;
-        while base.plus(size).deref() != b'\0' {
-            size += 1;
-        }
-        let arg_slice = unsafe { core::slice::from_raw_parts(base, size) };
-        let arg = unsafe { core::str::from_utf8_unchecked(arg_slice) };
-        match arg_index {
-            1 => result.input_dir = arg,
-            2 => result.input_file_name = arg,
-            3 => result.output_dir = arg,
-            _ => {}
-        }
-    }
-    result
-}
+pub use platform::os::{parse_arguments, PlatformArguments};
 
 pub fn run(args: RunArguments) {
     use platform::{
