@@ -129,7 +129,6 @@ pub fn run(args: RunArguments) {
             filepath_memory.end();
             if let Ok(result) = resolve(
                 &mut memory,
-                &mut memory.output,
                 &input_string,
                 &mut components,
                 &input_dir,
@@ -750,8 +749,7 @@ struct ComponentTag {
 }
 
 fn resolve(
-    memory: *mut Memory,
-    output_memory: *mut MemoryArena,
+    memory: &mut Memory,
     string: &String,
     components: &mut NameValueArray,
     input_dir: &String,
@@ -759,13 +757,9 @@ fn resolve(
 ) -> Result<String> {
     use platform::os::{read_file, PATH_SEP};
 
-    // TODO(sen) Cleaner way to handle memory here
-    let memory = unsafe { &mut *memory };
-    let output_memory = unsafe { &mut *output_memory };
-
     // NOTE(sen) Output preparation, write final resolved string to `output_base`
-    let output_used_before = output_memory.used;
-    let output_base = output_memory.base.plus(output_used_before);
+    let output_used_before = memory.output.used;
+    let output_base = memory.output.base.plus(output_used_before);
 
     if string.size > 0 {
         let mut tokeniser = Tokeniser::new(string);
@@ -773,7 +767,7 @@ fn resolve(
         while let Some(token) = tokeniser.next_token(argument_memory.arena.as_ref_mut()) {
             match token {
                 Token::String(string) => {
-                    output_memory.push_and_copy(string.ptr, string.size);
+                    memory.output.push_and_copy(string.ptr, string.size);
                 }
                 Token::ComponentTag(component_tag) => {
                     // NOTE(sen) Find the component in cache or read it anew and store it in cache
@@ -839,7 +833,6 @@ fn resolve(
                     }
                     resolve(
                         memory,
-                        &mut memory.output,
                         &component_in_cache.value,
                         components,
                         input_dir,
@@ -866,7 +859,6 @@ fn resolve(
                         log_debug!("Start writing argument {} to output\n", arg_name);
                         resolve(
                             memory,
-                            &mut memory.output,
                             &arg.get_ref().value,
                             components,
                             input_dir,
@@ -910,7 +902,7 @@ fn resolve(
     // NOTE(sen) All output should be in the output arena at this point
     let result = String {
         ptr: output_base,
-        size: output_memory.used - output_used_before,
+        size: memory.output.used - output_used_before,
     };
 
     Ok(result)
