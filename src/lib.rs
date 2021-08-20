@@ -113,7 +113,7 @@ pub fn run(args: RunArguments) {
             }
         };
 
-        let mut components = NameValueArray::default();
+        let mut components = NameValueArray::new(&mut memory.components);
 
         let mut filepath_memory = memory.filepath.begin_temporary();
         let input_file_path = String::from_scs(
@@ -500,18 +500,17 @@ fn char_is_valid(ch: char) -> bool {
 struct NameValueArray {
     first: *const NameValue,
     count: usize,
-}
-
-impl Default for NameValueArray {
-    fn default() -> Self {
-        Self {
-            first: core::ptr::null(),
-            count: 0,
-        }
-    }
+    arena: *mut MemoryArena,
 }
 
 impl NameValueArray {
+    fn new(arena: *mut MemoryArena) -> Self {
+        Self {
+            first: core::ptr::null(),
+            count: 0,
+            arena,
+        }
+    }
     fn find_by_name(&self, name: String) -> Option<*const NameValue> {
         for index in 0..self.count {
             let entry = self.first.plus(index);
@@ -521,8 +520,8 @@ impl NameValueArray {
         }
         None
     }
-    fn new_empty_entry(&mut self, entry_memory: &mut MemoryArena) -> *mut NameValue {
-        let entry = entry_memory.push_struct::<NameValue>();
+    fn new_empty_entry(&mut self) -> *mut NameValue {
+        let entry = self.arena.as_ref_mut().push_struct::<NameValue>();
         if self.count == 0 {
             self.first = entry;
         }
@@ -620,7 +619,7 @@ impl Tokeniser {
                 };
                 let mut tag = ComponentTag {
                     name,
-                    args: NameValueArray::default(),
+                    args: NameValueArray::new(argument_memory),
                 };
                 loop {
                     self.advance_until_not_whitespace();
@@ -653,7 +652,7 @@ impl Tokeniser {
                         ptr: arg_value_base,
                         size: arg_value_size,
                     };
-                    let mut arg_ptr = tag.args.new_empty_entry(argument_memory);
+                    let mut arg_ptr = tag.args.new_empty_entry();
                     let arg = arg_ptr.as_ref_mut();
                     arg.name = arg_name;
                     arg.value = arg_value;
@@ -787,7 +786,7 @@ fn resolve(
                             component_looked_up
                         } else {
                             log_debug!("did not find component {} in cache\n", component_tag.name);
-                            let new_component = components.new_empty_entry(&mut memory.components);
+                            let new_component = components.new_empty_entry();
                             let new_component = unsafe { &mut *new_component };
 
                             // NOTE(sen) Name from use
@@ -890,7 +889,7 @@ fn resolve(
                         );
                         return Err(Error {});
                     }
-                    let mut dest = components.new_empty_entry(&mut memory.components);
+                    let mut dest = components.new_empty_entry();
                     let dest = dest.as_ref_mut();
                     dest.name = String::from_s(
                         &mut memory.component_names,
