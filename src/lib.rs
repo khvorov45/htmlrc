@@ -314,6 +314,27 @@ impl MemoryArena {
     }
 }
 
+// TODO(sen) Use this instead of from methods
+impl Write for MemoryArena {
+    fn write_str(&mut self, string: &str) -> core::fmt::Result {
+        self.push_and_copy(string.as_ptr(), string.as_bytes().len());
+        Ok(())
+    }
+}
+
+#[macro_export]
+macro_rules! format {
+    ($arena:expr, $($arg:tt)*) => {{
+        let ptr = $arena.base.plus($arena.used);
+        let used_before = $arena.used;
+        let _ = ::core::write!($arena, $($arg)*);
+        String {
+            ptr,
+            size: $arena.used - used_before
+        }
+    }};
+}
+
 struct TemporaryMemory {
     arena: *mut MemoryArena,
     used_before: usize,
@@ -351,14 +372,10 @@ impl String {
         source: &String,
         null_terminator: NullTerminator,
     ) -> String {
-        let used_before = memory.used;
-        let base = memory.push_and_copy(source.ptr, source.size);
         if null_terminator == NullTerminator::Yes {
-            memory.push_byte(b'\0');
-        }
-        String {
-            ptr: base,
-            size: memory.used - used_before,
+            format!(memory, "{}\0", source)
+        } else {
+            format!(memory, "{}", source)
         }
     }
 
