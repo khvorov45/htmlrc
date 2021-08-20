@@ -113,10 +113,7 @@ pub fn run(args: RunArguments) {
             }
         };
 
-        let mut components = NameValueArray {
-            first: core::ptr::null(),
-            count: 0,
-        };
+        let mut components = NameValueArray::default();
 
         let mut filepath_memory = memory.filepath.begin_temporary();
         let input_file_path = String::from_scs(
@@ -145,8 +142,11 @@ pub fn run(args: RunArguments) {
                 debug_assert!(memory.component_arguments.temporary_count == 0);
 
                 let mut filepath_memory = memory.filepath.begin_temporary();
-                let output_dir_path =
-                    String::from_s(filepath_memory.arena.as_ref_mut(), &output_dir);
+                let output_dir_path = String::from_s(
+                    filepath_memory.arena.as_ref_mut(),
+                    &output_dir,
+                    NullTerminator::Yes,
+                );
                 if create_dir_if_not_exists(&output_dir_path).is_ok() {
                     filepath_memory.reset();
 
@@ -340,11 +340,23 @@ struct String {
     size: usize,
 }
 
+#[derive(PartialEq)]
+enum NullTerminator {
+    Yes,
+    No,
+}
+
 impl String {
-    fn from_s(memory: &mut MemoryArena, source: &String) -> String {
+    fn from_s(
+        memory: &mut MemoryArena,
+        source: &String,
+        null_terminator: NullTerminator,
+    ) -> String {
         let used_before = memory.used;
         let base = memory.push_and_copy(source.ptr, source.size);
-        memory.push_byte(b'\0');
+        if null_terminator == NullTerminator::Yes {
+            memory.push_byte(b'\0');
+        }
         String {
             ptr: base,
             size: memory.used - used_before,
@@ -490,6 +502,15 @@ struct NameValueArray {
     count: usize,
 }
 
+impl Default for NameValueArray {
+    fn default() -> Self {
+        Self {
+            first: core::ptr::null(),
+            count: 0,
+        }
+    }
+}
+
 impl NameValueArray {
     fn find_by_name(&self, name: String) -> Option<*const NameValue> {
         for index in 0..self.count {
@@ -499,6 +520,14 @@ impl NameValueArray {
             }
         }
         None
+    }
+    fn new_empty_entry(&mut self, entry_memory: &mut MemoryArena) -> *mut NameValue {
+        let entry = entry_memory.push_struct::<NameValue>();
+        if self.count == 0 {
+            self.first = entry;
+        }
+        self.count += 1;
+        entry
     }
 }
 
@@ -591,10 +620,7 @@ impl Tokeniser {
                 };
                 let mut tag = ComponentTag {
                     name,
-                    args: NameValueArray {
-                        first: core::ptr::null(),
-                        count: 0,
-                    },
+                    args: NameValueArray::default(),
                 };
                 loop {
                     self.advance_until_not_whitespace();
@@ -627,14 +653,10 @@ impl Tokeniser {
                         ptr: arg_value_base,
                         size: arg_value_size,
                     };
-                    let mut arg_ptr = argument_memory.push_struct::<NameValue>();
+                    let mut arg_ptr = tag.args.new_empty_entry(argument_memory);
                     let arg = arg_ptr.as_ref_mut();
                     arg.name = arg_name;
                     arg.value = arg_value;
-                    if tag.args.count == 0 {
-                        tag.args.first = arg;
-                    }
-                    tag.args.count += 1;
                 }
                 if self.this.deref() == b'/' {
                     self.advance();
@@ -757,6 +779,7 @@ fn resolve(
                 Token::ComponentTag(component_tag) => {
                     // NOTE(sen) Find the component in cache or read it anew and store it in cache
                     let component_in_cache = {
+                        log_debug!("looking for component {}\n", component_tag.name);
                         if let Some(component_looked_up) =
                             components.find_by_name(component_tag.name)
                         {
@@ -764,18 +787,15 @@ fn resolve(
                             component_looked_up
                         } else {
                             log_debug!("did not find component {} in cache\n", component_tag.name);
-                            // NOTE(sen) This should be zeroed since the arena is never overwritten
-                            let new_component =
-                                unsafe { &mut *memory.components.push_struct::<NameValue>() };
+                            let new_component = components.new_empty_entry(&mut memory.components);
+                            let new_component = unsafe { &mut *new_component };
 
                             // NOTE(sen) Name from use
-                            new_component.name = {
-                                let size = component_tag.name.size;
-                                let ptr = memory
-                                    .component_names
-                                    .push_and_copy(component_tag.name.ptr, size);
-                                String { ptr, size }
-                            };
+                            new_component.name = String::from_s(
+                                &mut memory.component_names,
+                                &component_tag.name,
+                                NullTerminator::No,
+                            );
 
                             // NOTE(sen) Read in contents from file
                             let mut filepath_memory = memory.filepath.begin_temporary();
@@ -802,11 +822,6 @@ fn resolve(
                                 );
                                 return Err(Error {});
                             }
-
-                            if components.count == 0 {
-                                components.first = new_component;
-                            }
-                            components.count += 1;
 
                             new_component
                         }
@@ -865,11 +880,28 @@ fn resolve(
                         return Err(Error {});
                     }
                 }
+
                 Token::InlineComponent(inline_component) => {
-                    // TODO(sen) Handle the inline component
-                    log_debug!("INLINE COMPONENT\n");
-                    debug_line_raw(&inline_component.name);
-                    debug_line_raw(&inline_component.value);
+                    log_debug!("Adding inline component {}\n", inline_component.name);
+                    if components.find_by_name(inline_component.name).is_some() {
+                        log_error!(
+                            "Component {} defined inline but already present\n",
+                            inline_component.name
+                        );
+                        return Err(Error {});
+                    }
+                    let mut dest = components.new_empty_entry(&mut memory.components);
+                    let dest = dest.as_ref_mut();
+                    dest.name = String::from_s(
+                        &mut memory.component_names,
+                        &inline_component.name,
+                        NullTerminator::No,
+                    );
+                    dest.value = String::from_s(
+                        &mut memory.component_contents,
+                        &inline_component.value.trim(),
+                        NullTerminator::No,
+                    );
                 }
             };
         }
