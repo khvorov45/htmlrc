@@ -31,6 +31,7 @@ pub fn parse_arguments<'a>(platform_args: PlatformArguments) -> RunArguments<'a>
     result
 }
 
+#[link(name = "c")]
 extern "system" {
     fn write(file: i32, buffer: *const Void, count: usize) -> isize;
     fn __errno_location() -> *mut i32;
