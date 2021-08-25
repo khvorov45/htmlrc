@@ -446,7 +446,7 @@ fn string_literal_is_valid(literal: &str) -> bool {
 }
 
 fn char_is_valid(ch: char) -> bool {
-    ch.is_ascii() || ch == '\0'
+    ch.is_ascii() && ch != '\0'
 }
 
 struct NameValueArray {
