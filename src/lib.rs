@@ -577,7 +577,7 @@ impl Tokeniser {
         self.advance_until(|tokeniser| !tokeniser.this.deref().is_ascii_whitespace())
     }
 
-    fn next_token(&mut self, argument_memory: &mut MemoryArena) -> Option<Token> {
+    fn next_token(&mut self, argument_memory: &mut MemoryArena) -> Option<Result<Token>> {
         let token_type = self.current_token()?;
         match token_type {
             TokenType::String => {
@@ -585,7 +585,7 @@ impl Tokeniser {
                 let size = self.advance_until(|tokeniser| {
                     tokeniser.current_token() != Some(TokenType::String)
                 });
-                Some(Token::String(String { ptr: base, size }))
+                Some(Ok(Token::String(String { ptr: base, size })))
             }
 
             TokenType::ComponentTag => {
@@ -613,14 +613,14 @@ impl Tokeniser {
                     };
                     self.advance_until_not_whitespace();
                     if self.this.deref() != b'=' {
-                        // TODO(sen) Error - unexpected argument
-                        break;
+                        log_error!("unexpected argument: expected '='\n");
+                        return Some(Err(Error {}));
                     }
                     self.advance();
                     self.advance_until_not_whitespace();
                     if self.this.deref() != b'"' {
-                        // TODO(sen) Error - unexpected argument
-                        break;
+                        log_error!("unexpected argument: expected '\"'\n");
+                        return Some(Err(Error {}));
                     }
                     self.advance();
                     let arg_value_base = self.this;
@@ -640,14 +640,14 @@ impl Tokeniser {
                     self.advance();
                     if self.this.deref() == b'>' {
                         self.advance();
-                        Some(Token::ComponentTag(tag))
+                        Some(Ok(Token::ComponentTag(tag)))
                     } else {
-                        // TODO(sen) Error - unexpected opening
-                        None
+                        log_error!("unexpected component closing: expected '>'\n");
+                        Some(Err(Error {}))
                     }
                 } else {
-                    // TODO(sen) Error - unexpected opening
-                    None
+                    log_error!("unexpected component closing: expected '/'\n");
+                    Some(Err(Error {}))
                 }
             }
 
@@ -659,7 +659,7 @@ impl Tokeniser {
                     ptr: arg_name_base,
                     size: arg_name_size,
                 };
-                Some(Token::Argument(arg_name))
+                Some(Ok(Token::Argument(arg_name)))
             }
 
             TokenType::InlineComponent => {
@@ -684,7 +684,7 @@ impl Tokeniser {
                     size: value_size_plus_one - 1,
                 };
                 self.advance();
-                Some(Token::InlineComponent(NameValue { name, value }))
+                Some(Ok(Token::InlineComponent(NameValue { name, value })))
             }
         }
     }
@@ -746,7 +746,7 @@ fn resolve(
         let mut tokeniser = Tokeniser::new(string);
         let mut argument_memory = memory.component_arguments.begin_temporary();
         while let Some(token) = tokeniser.next_token(argument_memory.arena.as_ref_mut()) {
-            match token {
+            match token? {
                 Token::String(string) => {
                     memory.output.push_and_copy(string.ptr, string.size);
                 }
@@ -837,7 +837,7 @@ fn resolve(
                             &arg.get_ref().value,
                             components,
                             input_dir,
-                            None, // TODO(sen) What do we want here?
+                            None, // NOTE(sen) Argument definition doesn't need to know about sibling arguments
                             filepath,
                         )?;
                         log_debug!("Finish writing argument {} to output\n", arg_name);
