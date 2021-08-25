@@ -54,15 +54,15 @@ pub fn run(args: RunArguments) {
     log_debug!("output_dir: {}\n", &output_dir);
     log_debug_line_sep();
 
-    // TODO(sen) Actually read the directory here
-    let (total_html_file_count, total_html_file_size) = (512, 512 * 128 * KILOBYTE);
+    let total_supported_components = 512; // TODO(sen) How many?
+    let expected_average_component_size = 128 * KILOBYTE; // TODO(sen) How much?
 
     let filepath_size = MAX_PATH_BYTES;
-    let components_size = total_html_file_count * core::mem::size_of::<NameValue>();
-    let component_names_size = total_html_file_count * MAX_FILENAME_BYTES;
-    let component_contents_size = total_html_file_size;
+    let components_size = total_supported_components * core::mem::size_of::<NameValue>();
+    let component_names_size = total_supported_components * MAX_FILENAME_BYTES;
+    let component_contents_size = total_supported_components * expected_average_component_size;
     let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
-    let input_size = total_html_file_size;
+    let input_size = 10 * MEGABYTE; // TODO(sen) How much?
     let output_size = 10 * MEGABYTE;
     let total_size = filepath_size
         + components_size
