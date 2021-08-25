@@ -435,14 +435,12 @@ impl ToString for str {
 }
 
 fn string_literal_is_valid(literal: &str) -> bool {
-    let mut result = true;
     for ch in literal.chars() {
         if !char_is_valid(ch) {
-            result = false;
-            break;
+            return false;
         }
     }
-    result
+    true
 }
 
 fn char_is_valid(ch: char) -> bool {
