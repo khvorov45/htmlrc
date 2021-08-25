@@ -37,7 +37,7 @@ pub fn run(args: RunArguments) {
         arch::last_cycle_count,
         os::{
             allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
-            read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES, PATH_SEP,
+            read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES,
         },
     };
 
@@ -115,39 +115,38 @@ pub fn run(args: RunArguments) {
 
         let mut components = NameValueArray::new(&mut memory.components);
 
-        let filepath_memory = memory.filepath.begin_temporary();
-        let input_file_path = format!(
-            unsafe { &mut *filepath_memory.arena },
-            "{}{}{}\0", input_dir, PATH_SEP, input_file_name
-        );
+        let mut filepath = Filepath {
+            arena: &mut memory.filepath,
+            complete: false,
+        };
+
+        let input_file_path = filepath
+            .new_path(input_dir)
+            .add_entry(input_file_name)
+            .get_string();
 
         let mut input_memory = memory.input.begin_temporary();
         if let Ok(input_string) = read_file(input_memory.arena.as_ref_mut(), &input_file_path) {
             log_debug!("started resolution of input at {}\n", input_file_path);
-            filepath_memory.end();
             if let Ok(result) = resolve(
                 &mut memory,
                 &input_string,
                 &mut components,
-                &input_dir,
+                input_dir,
                 None,
+                &mut filepath,
             ) {
                 log_debug!("input resolution finished\n");
 
-                debug_assert!(memory.filepath.temporary_count == 0);
                 debug_assert!(memory.input.temporary_count == 1);
                 debug_assert!(memory.component_arguments.temporary_count == 0);
 
-                let mut filepath_memory = memory.filepath.begin_temporary();
-                let output_dir_path =
-                    format!(unsafe { &mut *filepath_memory.arena }, "{}\0", output_dir);
+                let output_dir_path = filepath.new_path(output_dir).get_string();
                 if create_dir_if_not_exists(&output_dir_path).is_ok() {
-                    filepath_memory.reset();
-
-                    let output_file_path = format!(
-                        unsafe { &mut *filepath_memory.arena },
-                        "{}{}{}\0", output_dir, PATH_SEP, input_file_name
-                    );
+                    let output_file_path = filepath
+                        .new_path(output_dir)
+                        .add_entry(input_file_name)
+                        .get_string();
 
                     #[allow(clippy::branches_sharing_code)]
                     if write_file(&output_file_path, &result).is_ok() {
@@ -276,6 +275,11 @@ impl MemoryArena {
         debug_assert!(self.size - self.used >= size);
         let result = self.base.plus(self.used);
         self.used += size;
+        result
+    }
+    fn push_byte(&mut self, byte: u8) -> *mut u8 {
+        let result = self.push_size(1);
+        result.deref_and_assign(byte);
         result
     }
     fn push_and_copy(&mut self, ptr: *const u8, size: usize) -> *mut u8 {
@@ -445,6 +449,45 @@ fn string_literal_is_valid(literal: &str) -> bool {
 
 fn char_is_valid(ch: char) -> bool {
     ch.is_ascii() && ch != '\0'
+}
+
+struct Filepath {
+    arena: *mut MemoryArena,
+    complete: bool,
+}
+
+impl Filepath {
+    fn new_path(&mut self, entry: String) -> &mut Self {
+        self.complete = false;
+        let arena = self.arena.as_ref_mut();
+        arena.used = 0;
+        arena.push_and_copy(entry.ptr, entry.size);
+        self
+    }
+    fn add_entry(&mut self, entry: String) -> &mut Self {
+        debug_assert!(!self.complete);
+        let arena = self.arena.as_ref_mut();
+        arena.push_byte(platform::os::PATH_SEP as u8);
+        arena.push_and_copy(entry.ptr, entry.size);
+        self
+    }
+    fn add_ext(&mut self, ext: String) -> &mut Self {
+        debug_assert!(!self.complete);
+        let arena = self.arena.as_ref_mut();
+        arena.push_byte(b'.');
+        arena.push_and_copy(ext.ptr, ext.size);
+        self
+    }
+    fn get_string(&mut self) -> String {
+        debug_assert!(!self.complete);
+        let arena = self.arena.as_ref_mut();
+        arena.push_byte(b'\0');
+        self.complete = true;
+        String {
+            ptr: arena.base,
+            size: arena.used,
+        }
+    }
 }
 
 struct NameValueArray {
@@ -703,10 +746,11 @@ fn resolve(
     memory: &mut Memory,
     string: &String,
     components: &mut NameValueArray,
-    input_dir: &String,
+    input_dir: String,
     args: Option<&NameValueArray>,
+    filepath: &mut Filepath,
 ) -> Result<String> {
-    use platform::os::{read_file, PATH_SEP};
+    use platform::os::read_file;
 
     // NOTE(sen) Output preparation, write final resolved string to `output_base`
     let output_used_before = memory.output.used;
@@ -739,15 +783,14 @@ fn resolve(
                                 format!(memory.component_names, "{}", component_tag.name);
 
                             // NOTE(sen) Read in contents from file
-                            let filepath_memory = memory.filepath.begin_temporary();
-                            let new_component_path = format!(
-                                unsafe { &mut *filepath_memory.arena },
-                                "{}{}{}.html\0", input_dir, PATH_SEP, new_component.name
-                            );
+                            let new_component_path = filepath
+                                .new_path(input_dir)
+                                .add_entry(new_component.name)
+                                .add_ext("html".to_string())
+                                .get_string();
                             log_debug!("reading new component from {}\n", new_component_path);
                             let new_component_contents_raw_result =
                                 read_file(&mut memory.component_contents, &new_component_path);
-                            filepath_memory.end();
                             if let Ok(new_component_contents_raw) =
                                 new_component_contents_raw_result
                             {
@@ -782,6 +825,7 @@ fn resolve(
                         components,
                         input_dir,
                         Some(&component_tag.args),
+                        filepath,
                     )?;
                     log_debug!(
                         "Finish writing contents of {} to output\n",
@@ -808,6 +852,7 @@ fn resolve(
                             components,
                             input_dir,
                             None, // TODO(sen) What do we want here?
+                            filepath,
                         )?;
                         log_debug!("Finish writing argument {} to output\n", arg_name);
                         log_debug_line_sep();
