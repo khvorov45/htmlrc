@@ -115,12 +115,10 @@ pub fn run(args: RunArguments) {
 
         let mut components = NameValueArray::new(&mut memory.components);
 
-        let mut filepath_memory = memory.filepath.begin_temporary();
-        let input_file_path = String::from_scs(
-            filepath_memory.arena.as_ref_mut(),
-            &input_dir,
-            PATH_SEP,
-            &input_file_name,
+        let filepath_memory = memory.filepath.begin_temporary();
+        let input_file_path = format!(
+            unsafe { &mut *filepath_memory.arena },
+            "{}{}{}\0", input_dir, PATH_SEP, input_file_name
         );
 
         let mut input_memory = memory.input.begin_temporary();
@@ -141,19 +139,14 @@ pub fn run(args: RunArguments) {
                 debug_assert!(memory.component_arguments.temporary_count == 0);
 
                 let mut filepath_memory = memory.filepath.begin_temporary();
-                let output_dir_path = String::from_s(
-                    filepath_memory.arena.as_ref_mut(),
-                    &output_dir,
-                    NullTerminator::Yes,
-                );
+                let output_dir_path =
+                    format!(unsafe { &mut *filepath_memory.arena }, "{}\0", output_dir);
                 if create_dir_if_not_exists(&output_dir_path).is_ok() {
                     filepath_memory.reset();
 
-                    let output_file_path = String::from_scs(
-                        filepath_memory.arena.as_ref_mut(),
-                        &output_dir,
-                        PATH_SEP,
-                        &input_file_name,
+                    let output_file_path = format!(
+                        unsafe { &mut *filepath_memory.arena },
+                        "{}{}{}\0", output_dir, PATH_SEP, input_file_name
                     );
 
                     #[allow(clippy::branches_sharing_code)]
@@ -296,11 +289,6 @@ impl MemoryArena {
         }
         base
     }
-    fn push_byte(&mut self, byte: u8) -> *mut u8 {
-        let base = self.push_size(1);
-        base.deref_and_assign(byte);
-        base
-    }
     fn push_struct<T>(&mut self) -> *mut T {
         let base = self.push_size(core::mem::size_of::<T>());
         base.cast()
@@ -314,7 +302,6 @@ impl MemoryArena {
     }
 }
 
-// TODO(sen) Use this instead of from methods
 impl Write for MemoryArena {
     fn write_str(&mut self, string: &str) -> core::fmt::Result {
         self.push_and_copy(string.as_ptr(), string.as_bytes().len());
@@ -360,58 +347,7 @@ struct String {
     size: usize,
 }
 
-#[derive(PartialEq)]
-enum NullTerminator {
-    Yes,
-    No,
-}
-
 impl String {
-    fn from_s(
-        memory: &mut MemoryArena,
-        source: &String,
-        null_terminator: NullTerminator,
-    ) -> String {
-        if null_terminator == NullTerminator::Yes {
-            format!(memory, "{}\0", source)
-        } else {
-            format!(memory, "{}", source)
-        }
-    }
-
-    fn from_scs(memory: &mut MemoryArena, source1: &String, ch: char, source2: &String) -> String {
-        debug_assert!(char_is_valid(ch));
-        let used_before = memory.used;
-        let base = memory.push_and_copy(source1.ptr, source1.size);
-        memory.push_byte(ch as u8);
-        memory.push_and_copy(source2.ptr, source2.size);
-        memory.push_byte(b'\0');
-        String {
-            ptr: base,
-            size: memory.used - used_before,
-        }
-    }
-
-    fn from_scss(
-        memory: &mut MemoryArena,
-        source1: &String,
-        ch: char,
-        source2: &String,
-        source3: &String,
-    ) -> String {
-        debug_assert!(char_is_valid(ch));
-        let used_before = memory.used;
-        let base = memory.push_and_copy(source1.ptr, source1.size);
-        memory.push_byte(ch as u8);
-        memory.push_and_copy(source2.ptr, source2.size);
-        memory.push_and_copy(source3.ptr, source3.size);
-        memory.push_byte(b'\0');
-        String {
-            ptr: base,
-            size: memory.used - used_before,
-        }
-    }
-
     /// Does not modify memory
     fn trim(&self) -> String {
         let mut result = String {
@@ -801,20 +737,16 @@ fn resolve(
                             let new_component = unsafe { &mut *new_component };
 
                             // NOTE(sen) Name from use
-                            new_component.name = String::from_s(
-                                &mut memory.component_names,
-                                &component_tag.name,
-                                NullTerminator::No,
+                            new_component.name = format!(
+                                unsafe { &mut *(&mut memory.component_names as *mut MemoryArena) },
+                                "{}", component_tag.name
                             );
 
                             // NOTE(sen) Read in contents from file
-                            let mut filepath_memory = memory.filepath.begin_temporary();
-                            let new_component_path = String::from_scss(
-                                filepath_memory.arena.as_ref_mut(),
-                                input_dir,
-                                PATH_SEP,
-                                &new_component.name,
-                                &".html".to_string(),
+                            let filepath_memory = memory.filepath.begin_temporary();
+                            let new_component_path = format!(
+                                unsafe { &mut *filepath_memory.arena },
+                                "{}{}{}.html\0", input_dir, PATH_SEP, new_component.name
                             );
                             log_debug!("reading new component from {}\n", new_component_path);
                             let new_component_contents_raw_result =
@@ -900,15 +832,14 @@ fn resolve(
                     }
                     let mut dest = components.new_empty_entry();
                     let dest = dest.as_ref_mut();
-                    dest.name = String::from_s(
-                        &mut memory.component_names,
-                        &inline_component.name,
-                        NullTerminator::No,
+                    dest.name = format!(
+                        unsafe { &mut *(&mut memory.component_names as *mut MemoryArena) },
+                        "{}", inline_component.name
                     );
-                    dest.value = String::from_s(
-                        &mut memory.component_contents,
-                        &inline_component.value.trim(),
-                        NullTerminator::No,
+                    dest.value = format!(
+                        unsafe { &mut *(&mut memory.component_names as *mut MemoryArena) },
+                        "{}",
+                        inline_component.value.trim()
                     );
                 }
             };
