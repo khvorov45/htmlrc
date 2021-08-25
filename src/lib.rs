@@ -837,7 +837,7 @@ fn resolve(
                             &arg.get_ref().value,
                             components,
                             input_dir,
-                            None, // NOTE(sen) Argument definition doesn't need to know about sibling arguments
+                            None, // TODO(sen) Allow argument pass-through
                             filepath,
                         )?;
                         log_debug!("Finish writing argument {} to output\n", arg_name);
