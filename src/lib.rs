@@ -306,26 +306,6 @@ impl MemoryArena {
     }
 }
 
-impl Write for MemoryArena {
-    fn write_str(&mut self, string: &str) -> core::fmt::Result {
-        self.push_and_copy(string.as_ptr(), string.as_bytes().len());
-        Ok(())
-    }
-}
-
-#[macro_export]
-macro_rules! format {
-    ($arena:expr, $($arg:tt)*) => {{
-        let ptr = $arena.base.plus($arena.used);
-        let used_before = $arena.used;
-        let _ = ::core::write!($arena, $($arg)*);
-        String {
-            ptr,
-            size: $arena.used - used_before
-        }
-    }};
-}
-
 struct TemporaryMemory {
     arena: *mut MemoryArena,
     used_before: usize,
@@ -779,8 +759,12 @@ fn resolve(
                             let new_component = unsafe { &mut *new_component };
 
                             // NOTE(sen) Name from use
-                            new_component.name =
-                                format!(memory.component_names, "{}", component_tag.name);
+                            new_component.name = String {
+                                ptr: memory
+                                    .component_names
+                                    .push_and_copy(component_tag.name.ptr, component_tag.name.size),
+                                size: component_tag.name.size,
+                            };
 
                             // NOTE(sen) Read in contents from file
                             let new_component_path = filepath
@@ -873,9 +857,18 @@ fn resolve(
                     }
                     let mut dest = components.new_empty_entry();
                     let dest = dest.as_ref_mut();
-                    dest.name = format!(memory.component_names, "{}", inline_component.name);
-                    dest.value =
-                        format!(memory.component_names, "{}", inline_component.value.trim());
+                    dest.name = String {
+                        ptr: memory
+                            .component_names
+                            .push_and_copy(inline_component.name.ptr, inline_component.name.size),
+                        size: inline_component.name.size,
+                    };
+                    dest.value = String {
+                        ptr: memory
+                            .component_contents
+                            .push_and_copy(inline_component.value.ptr, inline_component.value.size),
+                        size: inline_component.value.size,
+                    };
                 }
             };
         }
