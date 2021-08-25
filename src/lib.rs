@@ -332,6 +332,12 @@ struct String {
 }
 
 impl String {
+    fn copy(arena: &mut MemoryArena, source: String) -> String {
+        String {
+            ptr: arena.push_and_copy(source.ptr, source.size),
+            size: source.size,
+        }
+    }
     /// Does not modify memory
     fn trim(&self) -> String {
         let mut result = String {
@@ -759,12 +765,8 @@ fn resolve(
                             let new_component = unsafe { &mut *new_component };
 
                             // NOTE(sen) Name from use
-                            new_component.name = String {
-                                ptr: memory
-                                    .component_names
-                                    .push_and_copy(component_tag.name.ptr, component_tag.name.size),
-                                size: component_tag.name.size,
-                            };
+                            new_component.name =
+                                String::copy(&mut memory.component_names, component_tag.name);
 
                             // NOTE(sen) Read in contents from file
                             let new_component_path = filepath
@@ -857,18 +859,9 @@ fn resolve(
                     }
                     let mut dest = components.new_empty_entry();
                     let dest = dest.as_ref_mut();
-                    dest.name = String {
-                        ptr: memory
-                            .component_names
-                            .push_and_copy(inline_component.name.ptr, inline_component.name.size),
-                        size: inline_component.name.size,
-                    };
-                    dest.value = String {
-                        ptr: memory
-                            .component_contents
-                            .push_and_copy(inline_component.value.ptr, inline_component.value.size),
-                        size: inline_component.value.size,
-                    };
+                    dest.name = String::copy(&mut memory.component_names, inline_component.name);
+                    dest.value =
+                        String::copy(&mut memory.component_contents, inline_component.value);
                 }
             };
         }
