@@ -737,10 +737,8 @@ fn resolve(
                             let new_component = unsafe { &mut *new_component };
 
                             // NOTE(sen) Name from use
-                            new_component.name = format!(
-                                unsafe { &mut *(&mut memory.component_names as *mut MemoryArena) },
-                                "{}", component_tag.name
-                            );
+                            new_component.name =
+                                format!(memory.component_names, "{}", component_tag.name);
 
                             // NOTE(sen) Read in contents from file
                             let filepath_memory = memory.filepath.begin_temporary();
@@ -832,15 +830,9 @@ fn resolve(
                     }
                     let mut dest = components.new_empty_entry();
                     let dest = dest.as_ref_mut();
-                    dest.name = format!(
-                        unsafe { &mut *(&mut memory.component_names as *mut MemoryArena) },
-                        "{}", inline_component.name
-                    );
-                    dest.value = format!(
-                        unsafe { &mut *(&mut memory.component_names as *mut MemoryArena) },
-                        "{}",
-                        inline_component.value.trim()
-                    );
+                    dest.name = format!(memory.component_names, "{}", inline_component.name);
+                    dest.value =
+                        format!(memory.component_names, "{}", inline_component.value.trim());
                 }
             };
         }
