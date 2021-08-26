@@ -36,9 +36,8 @@ pub fn run(args: RunArguments) {
     use platform::{
         arch::last_cycle_count,
         os::{
-            allocate_and_clear, create_dir_if_not_exists, create_file_if_not_exists, exit,
-            get_seconds_from, get_timespec_now, read_file, write_file, MAX_FILENAME_BYTES,
-            MAX_PATH_BYTES,
+            allocate_and_clear, append_to_file, create_dir_if_not_exists, create_empty_file, exit,
+            get_seconds_from, get_timespec_now, read_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES,
         },
     };
 
@@ -91,6 +90,7 @@ pub fn run(args: RunArguments) {
             component_arguments_size / 1024
         );
         log_debug!("Input: {}MB\n", input_size / 1024 / 1024);
+        log_debug!("Output: {}MB\n", output_size / 1024 / 1024);
         log_debug!("Total: {}MB\n", total_size / 1024 / 1024);
         log_debug_line_sep();
 
@@ -148,7 +148,7 @@ pub fn run(args: RunArguments) {
             .add_entry(input_file_name)
             .get_string();
 
-        if create_file_if_not_exists(&output_file_path).is_err() {
+        if create_empty_file(&output_file_path).is_err() {
             log_error!("Failed to create output file {}\n", output_file_path);
             exit();
             return;
@@ -156,6 +156,10 @@ pub fn run(args: RunArguments) {
 
         output_file_path
     };
+
+    // NOTE(sen) The only arena that we can flush is the output since we never
+    // read back what we wrote previously
+    memory.output.flush_file = Some(output_file_path);
 
     let mut components = NameValueArray::new(&mut memory.components);
 
@@ -180,7 +184,8 @@ pub fn run(args: RunArguments) {
     };
 
     log_debug!("started resolution of input at {}\n", input_file_path);
-    let result = match resolve(
+
+    if resolve(
         &mut memory,
         &input_string,
         &mut components,
@@ -188,13 +193,12 @@ pub fn run(args: RunArguments) {
         None,
         None,
         &mut filepath,
-    ) {
-        Ok(result) => result,
-        Err(_) => {
-            // NOTE(sen) The message should have been generated before this
-            exit();
-            return;
-        }
+    )
+    .is_err()
+    {
+        // NOTE(sen) The message should have been generated before this
+        exit();
+        return;
     };
 
     log_debug!("input resolution finished\n");
@@ -202,7 +206,7 @@ pub fn run(args: RunArguments) {
     debug_assert!(memory.input.temporary_count == 0);
     debug_assert!(memory.component_arguments.temporary_count == 0);
 
-    if write_file(&output_file_path, &result).is_err() {
+    if append_to_file(&output_file_path, memory.output.base, memory.output.used).is_err() {
         log_error!("Failed to write to output file {}\n", output_file_path);
         exit();
         return;
@@ -300,6 +304,7 @@ struct MemoryArena {
     base: *mut u8,
     used: usize,
     temporary_count: usize,
+    flush_file: Option<String>,
 }
 
 impl MemoryArena {
@@ -309,11 +314,21 @@ impl MemoryArena {
             base: base.plus(*offset),
             used: 0,
             temporary_count: 0,
+            flush_file: None,
         };
         *offset += size;
         result
     }
     fn push_size(&mut self, size: usize) -> *mut u8 {
+        // TODO(sen) Continuously flush if we can't fit the size in one go
+        if self.size - self.used < size {
+            if let Some(flush_file) = self.flush_file {
+                if platform::os::append_to_file(&flush_file, self.base, self.used).is_err() {
+                    panic!("failed flushing output to {}\n", flush_file);
+                }
+                self.used = 0;
+            }
+        }
         debug_assert!(self.size - self.used >= size);
         let result = self.base.plus(self.used);
         self.used += size;
@@ -770,6 +785,7 @@ struct ComponentTag {
     args: NameValueArray,
 }
 
+/// Writes to the output arena
 fn resolve(
     memory: &mut Memory,
     string: &String,
@@ -778,11 +794,7 @@ fn resolve(
     args: Option<&NameValueArray>,
     parent_args: Option<&NameValueArray>,
     filepath: &mut Filepath,
-) -> Result<String> {
-    // NOTE(sen) Output preparation, write final resolved string to `output_base`
-    let output_used_before = memory.output.used;
-    let output_base = memory.output.base.plus(output_used_before);
-
+) -> Result<()> {
     if string.size > 0 {
         let mut tokeniser = Tokeniser::new(string);
         let mut argument_memory = memory.component_arguments.begin_temporary();
@@ -912,14 +924,7 @@ fn resolve(
         }
         argument_memory.end();
     }
-
-    // NOTE(sen) All output should be in the output arena at this point
-    let result = String {
-        ptr: output_base,
-        size: memory.output.used - output_used_before,
-    };
-
-    Ok(result)
+    Ok(())
 }
 
 // SECTION Debug logging

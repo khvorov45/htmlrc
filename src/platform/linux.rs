@@ -69,12 +69,15 @@ pub(crate) fn exit() {
     }
 }
 
-pub(crate) fn create_file_if_not_exists(path: &String) -> Result<()> {
+const O_WRONLY: i32 = 1;
+
+pub(crate) fn create_empty_file(path: &String) -> Result<()> {
     extern "system" {
         fn creat(path: *const i8, mode: u32) -> i32;
     }
+    const O_TRUNC: i32 = 512;
 
-    let mut file_handle = unsafe { open(path.ptr.cast(), 0) };
+    let mut file_handle = unsafe { open(path.ptr.cast(), O_WRONLY | O_TRUNC) };
 
     const S_IRUSR: u32 = 256;
     const S_IWUSR: u32 = 128;
@@ -99,14 +102,13 @@ pub(crate) fn create_file_if_not_exists(path: &String) -> Result<()> {
     }
 }
 
-pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
-    const O_WRONLY: i32 = 1;
-    const O_TRUNC: i32 = 512;
+pub(crate) fn append_to_file(path: &String, ptr: *const u8, size: usize) -> Result<()> {
+    const O_APPEND: i32 = 1024;
 
-    let file_handle = unsafe { open(path.ptr.cast(), O_WRONLY | O_TRUNC) };
+    let file_handle = unsafe { open(path.ptr.cast(), O_WRONLY | O_APPEND) };
 
     if file_handle >= 0 {
-        let write_result = unsafe { write(file_handle, content.ptr.cast(), content.size) };
+        let write_result = unsafe { write(file_handle, ptr.cast(), size) };
         if write_result == -1 {
             let _errno = unsafe { *__errno_location() };
             Err(Error {})
