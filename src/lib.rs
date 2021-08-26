@@ -246,7 +246,7 @@ struct Memory {
     /// on how much components are nested
     input: MemoryArena,
     /// Final resolved string
-    output: MemoryArena, // TODO(sen) Flush to file when full
+    output: MemoryArena,
     /// Components table
     components: MemoryArena,
     component_names: MemoryArena,
@@ -738,8 +738,6 @@ fn resolve(
     parent_args: Option<&NameValueArray>,
     filepath: &mut Filepath,
 ) -> Result<String> {
-    use platform::os::read_file;
-
     // NOTE(sen) Output preparation, write final resolved string to `output_base`
     let output_used_before = memory.output.used;
     let output_base = memory.output.base.plus(output_used_before);
@@ -777,8 +775,10 @@ fn resolve(
                                 .add_ext("html".to_string())
                                 .get_string();
                             log_debug!("reading new component from {}\n", new_component_path);
-                            let new_component_contents_raw_result =
-                                read_file(&mut memory.component_contents, &new_component_path);
+                            let new_component_contents_raw_result = platform::os::read_file(
+                                &mut memory.component_contents,
+                                &new_component_path,
+                            );
                             if let Ok(new_component_contents_raw) =
                                 new_component_contents_raw_result
                             {
