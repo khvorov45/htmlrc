@@ -134,6 +134,7 @@ pub fn run(args: RunArguments) {
                 &mut components,
                 input_dir,
                 None,
+                None,
                 &mut filepath,
             ) {
                 log_debug!("input resolution finished\n");
@@ -734,6 +735,7 @@ fn resolve(
     components: &mut NameValueArray,
     input_dir: String,
     args: Option<&NameValueArray>,
+    parent_args: Option<&NameValueArray>,
     filepath: &mut Filepath,
 ) -> Result<String> {
     use platform::os::read_file;
@@ -811,6 +813,7 @@ fn resolve(
                         components,
                         input_dir,
                         Some(&component_tag.args),
+                        args,
                         filepath,
                     )?;
                     log_debug!(
@@ -837,7 +840,8 @@ fn resolve(
                             &arg.get_ref().value,
                             components,
                             input_dir,
-                            None, // TODO(sen) Allow argument pass-through
+                            parent_args, // NOTE(sen) The argument value was written in parent
+                            None,
                             filepath,
                         )?;
                         log_debug!("Finish writing argument {} to output\n", arg_name);
