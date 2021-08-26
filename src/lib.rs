@@ -58,14 +58,17 @@ pub fn run(args: RunArguments) {
         let total_supported_components = 512; // TODO(sen) How many?
         let expected_average_component_size = 128 * KILOBYTE; // TODO(sen) How much?
 
-        let filepath_size = MAX_PATH_BYTES;
+        let input_path_size = MAX_PATH_BYTES;
+        let output_path_size = MAX_PATH_BYTES;
         let components_size = total_supported_components * core::mem::size_of::<NameValue>();
         let component_names_size = total_supported_components * MAX_FILENAME_BYTES;
         let component_contents_size = total_supported_components * expected_average_component_size;
         let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
         let input_size = 10 * MEGABYTE; // TODO(sen) How much?
         let output_size = 10 * MEGABYTE;
-        let total_size = filepath_size
+
+        let total_size = input_path_size
+            + output_path_size
             + components_size
             + component_names_size
             + component_contents_size
@@ -74,7 +77,8 @@ pub fn run(args: RunArguments) {
             + output_size;
 
         log_debug_title("MEMORY");
-        log_debug!("Filepath: {}B\n", filepath_size);
+        log_debug!("Input path: {}B\n", input_path_size);
+        log_debug!("Output path: {}B\n", output_path_size);
         log_debug!("Components: {}KB\n", components_size / 1024);
         log_debug!("Component names: {}KB\n", component_names_size / 1024);
         log_debug!(
@@ -101,7 +105,8 @@ pub fn run(args: RunArguments) {
             }
         };
         let mut size_used = 0;
-        let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
+        let input_path = MemoryArena::new(memory_base_ptr, &mut size_used, input_path_size);
+        let output_path = MemoryArena::new(memory_base_ptr, &mut size_used, output_path_size);
         let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
         let component_names =
             MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
@@ -113,7 +118,8 @@ pub fn run(args: RunArguments) {
         let output = MemoryArena::new(memory_base_ptr, &mut size_used, output_size);
         debug_assert!(size_used == total_size);
         Memory {
-            filepath,
+            input_path,
+            output_path,
             input,
             output,
             components,
@@ -126,7 +132,7 @@ pub fn run(args: RunArguments) {
     let mut components = NameValueArray::new(&mut memory.components);
 
     let mut filepath = Filepath {
-        arena: &mut memory.filepath,
+        arena: &mut memory.input_path,
         complete: false,
     };
 
@@ -257,8 +263,10 @@ impl<T> MutPointer<T> for *mut T {
 }
 
 struct Memory {
-    /// Filepath for input/output, one at a time
-    filepath: MemoryArena,
+    /// Filepath for input, one at a time
+    input_path: MemoryArena,
+    /// Path only for the output
+    output_path: MemoryArena,
     /// Contents of input files read as-is. Multiple at a time. Amount depends
     /// on how much components are nested
     input: MemoryArena,
