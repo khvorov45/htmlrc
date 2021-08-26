@@ -135,8 +135,8 @@ pub fn run(args: RunArguments) {
         .add_entry(input_file_name)
         .get_string();
 
-    let mut input_memory = memory.input.begin_temporary();
-    let input_string = match read_file(input_memory.arena.as_ref_mut(), &input_file_path) {
+    // NOTE(sen) This will never be "freed" anyway, so no need for temporary
+    let input_string = match read_file(&mut memory.input, &input_file_path) {
         Ok(string) => string,
         Err(_) => {
             log_error!("Failed to read input from {}\n", input_file_path);
@@ -165,7 +165,7 @@ pub fn run(args: RunArguments) {
 
     log_debug!("input resolution finished\n");
 
-    debug_assert!(memory.input.temporary_count == 1);
+    debug_assert!(memory.input.temporary_count == 0);
     debug_assert!(memory.component_arguments.temporary_count == 0);
 
     let output_dir_path = filepath.new_path(output_dir).get_string();
