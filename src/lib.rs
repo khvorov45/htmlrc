@@ -54,127 +54,144 @@ pub fn run(args: RunArguments) {
     log_debug!("output_dir: {}\n", &output_dir);
     log_debug_line_sep();
 
-    let total_supported_components = 512; // TODO(sen) How many?
-    let expected_average_component_size = 128 * KILOBYTE; // TODO(sen) How much?
+    let mut memory = {
+        let total_supported_components = 512; // TODO(sen) How many?
+        let expected_average_component_size = 128 * KILOBYTE; // TODO(sen) How much?
 
-    let filepath_size = MAX_PATH_BYTES;
-    let components_size = total_supported_components * core::mem::size_of::<NameValue>();
-    let component_names_size = total_supported_components * MAX_FILENAME_BYTES;
-    let component_contents_size = total_supported_components * expected_average_component_size;
-    let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
-    let input_size = 10 * MEGABYTE; // TODO(sen) How much?
-    let output_size = 10 * MEGABYTE;
-    let total_size = filepath_size
-        + components_size
-        + component_names_size
-        + component_contents_size
-        + component_arguments_size
-        + input_size
-        + output_size;
+        let filepath_size = MAX_PATH_BYTES;
+        let components_size = total_supported_components * core::mem::size_of::<NameValue>();
+        let component_names_size = total_supported_components * MAX_FILENAME_BYTES;
+        let component_contents_size = total_supported_components * expected_average_component_size;
+        let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
+        let input_size = 10 * MEGABYTE; // TODO(sen) How much?
+        let output_size = 10 * MEGABYTE;
+        let total_size = filepath_size
+            + components_size
+            + component_names_size
+            + component_contents_size
+            + component_arguments_size
+            + input_size
+            + output_size;
 
-    log_debug_title("MEMORY");
-    log_debug!("Filepath: {}B\n", filepath_size);
-    log_debug!("Components: {}KB\n", components_size / 1024);
-    log_debug!("Component names: {}KB\n", component_names_size / 1024);
-    log_debug!(
-        "Component contents: {}MB\n",
-        component_contents_size / 1024 / 1024
-    );
-    log_debug!(
-        "Component arguments: {}KB\n",
-        component_arguments_size / 1024
-    );
-    log_debug!("Input: {}MB\n", input_size / 1024 / 1024);
-    log_debug!("Total: {}MB\n", total_size / 1024 / 1024);
-    log_debug_line_sep();
-
-    if let Ok(memory_base_ptr) = allocate_and_clear(total_size) {
-        let mut memory = {
-            let mut size_used = 0;
-            let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
-            let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
-            let component_names =
-                MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
-            let component_contents =
-                MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
-            let component_arguments =
-                MemoryArena::new(memory_base_ptr, &mut size_used, component_arguments_size);
-            let input = MemoryArena::new(memory_base_ptr, &mut size_used, input_size);
-            let output = MemoryArena::new(memory_base_ptr, &mut size_used, output_size);
-            debug_assert!(size_used == total_size);
-            Memory {
-                filepath,
-                input,
-                output,
-                components,
-                component_names,
-                component_contents,
-                component_arguments,
-            }
-        };
-
-        let mut components = NameValueArray::new(&mut memory.components);
-
-        let mut filepath = Filepath {
-            arena: &mut memory.filepath,
-            complete: false,
-        };
-
-        let input_file_path = filepath
-            .new_path(input_dir)
-            .add_entry(input_file_name)
-            .get_string();
-
-        let mut input_memory = memory.input.begin_temporary();
-        if let Ok(input_string) = read_file(input_memory.arena.as_ref_mut(), &input_file_path) {
-            log_debug!("started resolution of input at {}\n", input_file_path);
-            if let Ok(result) = resolve(
-                &mut memory,
-                &input_string,
-                &mut components,
-                input_dir,
-                None,
-                None,
-                &mut filepath,
-            ) {
-                log_debug!("input resolution finished\n");
-
-                debug_assert!(memory.input.temporary_count == 1);
-                debug_assert!(memory.component_arguments.temporary_count == 0);
-
-                let output_dir_path = filepath.new_path(output_dir).get_string();
-                if create_dir_if_not_exists(&output_dir_path).is_ok() {
-                    let output_file_path = filepath
-                        .new_path(output_dir)
-                        .add_entry(input_file_name)
-                        .get_string();
-
-                    #[allow(clippy::branches_sharing_code)]
-                    if write_file(&output_file_path, &result).is_ok() {
-                        log_info!("Wrote output to {}\n", output_file_path);
-                        log_debug!(
-                            "Completed in {:.5}s, {}cycles\n",
-                            get_seconds_from(&program_start_time),
-                            last_cycle_count() - program_start_cycle
-                        );
-                    } else {
-                        log_error!("Failed to write to output file {}\n", output_file_path);
-                    }
-                } else {
-                    log_error!("Failed to create output directory {}\n", output_dir);
-                }
-            } else {
-                log_error!("Resolution failed\n");
-            }
-        } else {
-            log_error!("Failed to read input from {}\n", input_file_path);
-        }
-    } else {
-        log_error!(
-            "Memory allocation failed (size requested: {} bytes)\n",
-            total_size
+        log_debug_title("MEMORY");
+        log_debug!("Filepath: {}B\n", filepath_size);
+        log_debug!("Components: {}KB\n", components_size / 1024);
+        log_debug!("Component names: {}KB\n", component_names_size / 1024);
+        log_debug!(
+            "Component contents: {}MB\n",
+            component_contents_size / 1024 / 1024
         );
+        log_debug!(
+            "Component arguments: {}KB\n",
+            component_arguments_size / 1024
+        );
+        log_debug!("Input: {}MB\n", input_size / 1024 / 1024);
+        log_debug!("Total: {}MB\n", total_size / 1024 / 1024);
+        log_debug_line_sep();
+
+        let memory_base_ptr = match allocate_and_clear(total_size) {
+            Ok(ptr) => ptr,
+            Err(_) => {
+                log_error!(
+                    "Memory allocation failed (size requested: {} bytes)\n",
+                    total_size
+                );
+                exit();
+                return;
+            }
+        };
+        let mut size_used = 0;
+        let filepath = MemoryArena::new(memory_base_ptr, &mut size_used, filepath_size);
+        let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
+        let component_names =
+            MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
+        let component_contents =
+            MemoryArena::new(memory_base_ptr, &mut size_used, component_contents_size);
+        let component_arguments =
+            MemoryArena::new(memory_base_ptr, &mut size_used, component_arguments_size);
+        let input = MemoryArena::new(memory_base_ptr, &mut size_used, input_size);
+        let output = MemoryArena::new(memory_base_ptr, &mut size_used, output_size);
+        debug_assert!(size_used == total_size);
+        Memory {
+            filepath,
+            input,
+            output,
+            components,
+            component_names,
+            component_contents,
+            component_arguments,
+        }
+    };
+
+    let mut components = NameValueArray::new(&mut memory.components);
+
+    let mut filepath = Filepath {
+        arena: &mut memory.filepath,
+        complete: false,
+    };
+
+    let input_file_path = filepath
+        .new_path(input_dir)
+        .add_entry(input_file_name)
+        .get_string();
+
+    let mut input_memory = memory.input.begin_temporary();
+    let input_string = match read_file(input_memory.arena.as_ref_mut(), &input_file_path) {
+        Ok(string) => string,
+        Err(_) => {
+            log_error!("Failed to read input from {}\n", input_file_path);
+            exit();
+            return;
+        }
+    };
+
+    log_debug!("started resolution of input at {}\n", input_file_path);
+    let result = match resolve(
+        &mut memory,
+        &input_string,
+        &mut components,
+        input_dir,
+        None,
+        None,
+        &mut filepath,
+    ) {
+        Ok(result) => result,
+        Err(_) => {
+            // NOTE(sen) The message should have been generated before this
+            exit();
+            return;
+        }
+    };
+
+    log_debug!("input resolution finished\n");
+
+    debug_assert!(memory.input.temporary_count == 1);
+    debug_assert!(memory.component_arguments.temporary_count == 0);
+
+    let output_dir_path = filepath.new_path(output_dir).get_string();
+    if create_dir_if_not_exists(&output_dir_path).is_err() {
+        log_error!("Failed to create output directory {}\n", output_dir);
+        exit();
+        return;
     }
+
+    let output_file_path = filepath
+        .new_path(output_dir)
+        .add_entry(input_file_name)
+        .get_string();
+
+    if write_file(&output_file_path, &result).is_err() {
+        log_error!("Failed to write to output file {}\n", output_file_path);
+        exit();
+        return;
+    }
+
+    log_info!("Wrote output to {}\n", output_file_path);
+    log_debug!(
+        "Completed in {:.5}s, {}cycles\n",
+        get_seconds_from(&program_start_time),
+        last_cycle_count() - program_start_cycle
+    );
 
     exit();
 }
