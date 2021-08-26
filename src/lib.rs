@@ -36,8 +36,9 @@ pub fn run(args: RunArguments) {
     use platform::{
         arch::last_cycle_count,
         os::{
-            allocate_and_clear, create_dir_if_not_exists, exit, get_seconds_from, get_timespec_now,
-            read_file, write_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES,
+            allocate_and_clear, create_dir_if_not_exists, create_file_if_not_exists, exit,
+            get_seconds_from, get_timespec_now, read_file, write_file, MAX_FILENAME_BYTES,
+            MAX_PATH_BYTES,
         },
     };
 
@@ -129,6 +130,33 @@ pub fn run(args: RunArguments) {
         }
     };
 
+    let output_file_path = {
+        let mut filepath = Filepath {
+            arena: &mut memory.output_path,
+            complete: false,
+        };
+
+        let output_dir_path = filepath.new_path(output_dir).get_string();
+        if create_dir_if_not_exists(&output_dir_path).is_err() {
+            log_error!("Failed to create output directory {}\n", output_dir);
+            exit();
+            return;
+        }
+
+        let output_file_path = filepath
+            .new_path(output_dir)
+            .add_entry(input_file_name)
+            .get_string();
+
+        if create_file_if_not_exists(&output_file_path).is_err() {
+            log_error!("Failed to create output file {}\n", output_file_path);
+            exit();
+            return;
+        }
+
+        output_file_path
+    };
+
     let mut components = NameValueArray::new(&mut memory.components);
 
     let mut filepath = Filepath {
@@ -173,18 +201,6 @@ pub fn run(args: RunArguments) {
 
     debug_assert!(memory.input.temporary_count == 0);
     debug_assert!(memory.component_arguments.temporary_count == 0);
-
-    let output_dir_path = filepath.new_path(output_dir).get_string();
-    if create_dir_if_not_exists(&output_dir_path).is_err() {
-        log_error!("Failed to create output directory {}\n", output_dir);
-        exit();
-        return;
-    }
-
-    let output_file_path = filepath
-        .new_path(output_dir)
-        .add_entry(input_file_name)
-        .get_string();
 
     if write_file(&output_file_path, &result).is_err() {
         log_error!("Failed to write to output file {}\n", output_file_path);
