@@ -30,7 +30,7 @@ impl<'a> Default for RunArguments<'a> {
     }
 }
 
-pub use platform::os::{parse_arguments, PlatformArguments};
+pub use platform::os::parse_arguments;
 
 pub fn run(args: RunArguments) {
     use platform::{

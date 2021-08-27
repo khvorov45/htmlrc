@@ -6,12 +6,7 @@ pub(crate) const MAX_FILENAME_BYTES: usize = 256;
 
 enum Void {}
 
-pub struct PlatformArguments {
-    pub argc: isize,
-    pub argv: *const *const u8,
-}
-
-pub fn parse_arguments<'a>(platform_args: PlatformArguments) -> RunArguments<'a> {
+pub fn parse_arguments<'a>(argc: isize, argv: *const *const u8) -> RunArguments<'a> {
     let mut result = RunArguments::default();
     for arg_index in 1..platform_args.argc as usize {
         let base = platform_args.argv.plus(arg_index).deref();

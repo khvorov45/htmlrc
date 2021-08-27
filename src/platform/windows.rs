@@ -1,4 +1,4 @@
-use crate::{Error, MemoryArena, Result, String};
+use crate::{Error, MemoryArena, Result, RunArguments, String};
 
 pub(crate) const PATH_SEP: char = '\\';
 /// https://docs.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
@@ -6,10 +6,22 @@ pub(crate) const MAX_PATH_BYTES: usize = 260;
 /// https://docs.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
 pub(crate) const MAX_FILENAME_BYTES: usize = 256;
 
+pub fn parse_arguments<'a>() -> RunArguments<'a> {
+    // TODO(sen) Implement
+    let mut result = RunArguments::default();
+    result
+}
+
 enum Void {}
 /// https://docs.microsoft.com/en-us/windows/console/getstdhandle
 const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
 
+// NOTE(sen) Equivalent to /MT except the C++ std
+// https://docs.microsoft.com/en-us/cpp/c-runtime-library/crt-library-features
+#[link(name = "libcmt")]
+#[link(name = "libucrt")]
+#[link(name = "libvcruntime")]
+#[link(name = "kernel32")]
 extern "system" {
     /// https://docs.microsoft.com/en-us/windows/console/getstdhandle
     fn GetStdHandle(handle: u32) -> *mut Void;
@@ -54,20 +66,6 @@ pub(crate) fn write_stdout_raw(ptr: *const u8, size: usize) {
 /// https://docs.microsoft.com/en-us/windows/console/getstdhandle
 const STD_ERROR_HANDLE: u32 = -12i32 as u32;
 
-pub(crate) fn write_stderr(text: &str) {
-    unsafe {
-        let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
-        let mut written = 0;
-        WriteFileEx(
-            stderr_handle,
-            text.as_ptr() as *const _,
-            text.as_bytes().len(),
-            &mut written,
-            core::ptr::null_mut(),
-        )
-    };
-}
-
 pub(crate) fn write_stderr_raw(ptr: *const u8, size: usize) {
     unsafe {
         let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
@@ -93,7 +91,12 @@ pub(crate) fn exit() {
     }
 }
 
-pub(crate) fn write_file(path: &String, content: &String) -> Result<()> {
+pub(crate) fn create_empty_file(path: &String) -> Result<()> {
+    // TODO(sen) Implement
+    Err(Error {})
+}
+
+pub(crate) fn append_to_file(path: &String, ptr: *const u8, size: usize) -> Result<()> {
     // TODO(sen) Implement
     Err(Error {})
 }
