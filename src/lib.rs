@@ -65,7 +65,7 @@ pub fn run(args: RunArguments) {
         let component_contents_size = total_supported_components * expected_average_component_size;
         let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
         let input_size = 10 * MEGABYTE; // TODO(sen) How much?
-        let output_size = 10 * MEGABYTE; // TODO(sen) This should be the maximum html file size
+        let output_size = 409; // TODO(sen) This should be the maximum html file size
 
         let total_size = input_path_size
             + output_path_size
@@ -107,7 +107,7 @@ pub fn run(args: RunArguments) {
         };
         let mut size_used = 0;
         let input_path = MemoryArena::new(memory_base_ptr, &mut size_used, input_path_size);
-        let output_path = MemoryArena::new(memory_base_ptr, &mut size_used, output_path_size);
+        let mut output_path = MemoryArena::new(memory_base_ptr, &mut size_used, output_path_size);
         let components = MemoryArena::new(memory_base_ptr, &mut size_used, components_size);
         let component_names =
             MemoryArena::new(memory_base_ptr, &mut size_used, component_names_size);
@@ -118,9 +118,41 @@ pub fn run(args: RunArguments) {
         let input = MemoryArena::new(memory_base_ptr, &mut size_used, input_size);
         let output = MemoryArena::new(memory_base_ptr, &mut size_used, output_size);
         debug_assert!(size_used == total_size);
+
+        let output_file_path = {
+            let mut filepath = Filepath {
+                arena: &mut output_path,
+                complete: false,
+            };
+
+            let output_dir_path = filepath.new_path(output_dir).get_string();
+            if create_dir_if_not_exists(&output_dir_path).is_err() {
+                log_error!("Failed to create output directory {}\n", output_dir);
+                exit();
+                return;
+            }
+
+            let output_file_path = filepath
+                .new_path(output_dir)
+                .add_entry(input_file_name)
+                .get_string();
+
+            if create_empty_file(&output_file_path).is_err() {
+                log_error!("Failed to create output file {}\n", output_file_path);
+                exit();
+                return;
+            }
+
+            output_file_path
+        };
+
+        let output = FlushableArena {
+            arena: output,
+            flush_file: output_file_path,
+        };
+
         Memory {
             input_path,
-            output_path,
             input,
             output,
             components,
@@ -129,37 +161,6 @@ pub fn run(args: RunArguments) {
             component_arguments,
         }
     };
-
-    let output_file_path = {
-        let mut filepath = Filepath {
-            arena: &mut memory.output_path,
-            complete: false,
-        };
-
-        let output_dir_path = filepath.new_path(output_dir).get_string();
-        if create_dir_if_not_exists(&output_dir_path).is_err() {
-            log_error!("Failed to create output directory {}\n", output_dir);
-            exit();
-            return;
-        }
-
-        let output_file_path = filepath
-            .new_path(output_dir)
-            .add_entry(input_file_name)
-            .get_string();
-
-        if create_empty_file(&output_file_path).is_err() {
-            log_error!("Failed to create output file {}\n", output_file_path);
-            exit();
-            return;
-        }
-
-        output_file_path
-    };
-
-    // NOTE(sen) The only arena that we can flush is the output since we never
-    // read back what we wrote previously
-    memory.output.flush_file = Some(output_file_path);
 
     let mut components = NameValueArray::new(&mut memory.components);
 
@@ -206,13 +207,22 @@ pub fn run(args: RunArguments) {
     debug_assert!(memory.input.temporary_count == 0);
     debug_assert!(memory.component_arguments.temporary_count == 0);
 
-    if append_to_file(&output_file_path, memory.output.base, memory.output.used).is_err() {
-        log_error!("Failed to write to output file {}\n", output_file_path);
+    if append_to_file(
+        &memory.output.flush_file,
+        memory.output.arena.base,
+        memory.output.arena.used,
+    )
+    .is_err()
+    {
+        log_error!(
+            "Failed to write to output file {}\n",
+            memory.output.flush_file
+        );
         exit();
         return;
     }
 
-    log_info!("Wrote output to {}\n", output_file_path);
+    log_info!("Wrote output to {}\n", memory.output.flush_file);
     log_debug!(
         "Completed in {:.5}s, {}cycles\n",
         get_seconds_from(&program_start_time),
@@ -285,13 +295,11 @@ impl<T> MutPointer<T> for *mut T {
 struct Memory {
     /// Filepath for input, one at a time
     input_path: MemoryArena,
-    /// Path only for the output
-    output_path: MemoryArena,
     /// Contents of input files read as-is. Multiple at a time. Amount depends
     /// on how much components are nested
     input: MemoryArena,
     /// Final resolved string
-    output: MemoryArena,
+    output: FlushableArena,
     /// Components table
     components: MemoryArena,
     component_names: MemoryArena,
@@ -304,7 +312,6 @@ struct MemoryArena {
     base: *mut u8,
     used: usize,
     temporary_count: usize,
-    flush_file: Option<String>,
 }
 
 impl MemoryArena {
@@ -314,20 +321,11 @@ impl MemoryArena {
             base: base.plus(*offset),
             used: 0,
             temporary_count: 0,
-            flush_file: None,
         };
         *offset += size;
         result
     }
     fn push_size(&mut self, size: usize) -> *mut u8 {
-        if self.size - self.used < size {
-            if let Some(flush_file) = self.flush_file {
-                if platform::os::append_to_file(&flush_file, self.base, self.used).is_err() {
-                    panic!("failed flushing output to {}\n", flush_file);
-                }
-                self.used = 0;
-            }
-        }
         debug_assert!(self.size - self.used >= size);
         let result = self.base.plus(self.used);
         self.used += size;
@@ -359,6 +357,26 @@ impl MemoryArena {
             arena: self,
             used_before: self.used,
         }
+    }
+}
+
+struct FlushableArena {
+    arena: MemoryArena,
+    flush_file: String,
+}
+
+impl FlushableArena {
+    fn push_and_copy(&mut self, ptr: *const u8, size: usize) {
+        if self.arena.size - self.arena.used < size {
+            log_debug!("flushing memory to {}\n", self.flush_file);
+            if platform::os::append_to_file(&self.flush_file, self.arena.base, self.arena.used)
+                .is_err()
+            {
+                panic!("failed flushing output to {}\n", self.flush_file);
+            }
+            self.arena.used = 0;
+        }
+        self.arena.push_and_copy(ptr, size);
     }
 }
 
