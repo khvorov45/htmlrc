@@ -8,8 +8,8 @@ enum Void {}
 
 pub fn parse_arguments<'a>(argc: isize, argv: *const *const u8) -> RunArguments<'a> {
     let mut result = RunArguments::default();
-    for arg_index in 1..platform_args.argc as usize {
-        let base = platform_args.argv.plus(arg_index).deref();
+    for arg_index in 1..argc as usize {
+        let base = argv.plus(arg_index).deref();
         let mut size = 0;
         while base.plus(size).deref() != b'\0' {
             size += 1;
