@@ -54,18 +54,25 @@ pub fn run(args: RunArguments) {
     log_debug!("output_dir: {}\n", &output_dir);
     log_debug_line_sep();
 
+    let (max_html_file_size, total_html_file_size) = {
+        // TODO(sen) Implement
+        (MEGABYTE, 10 * MEGABYTE)
+    };
+
     let mut memory = {
-        let total_supported_components = 512; // TODO(sen) How many?
-        let expected_average_component_size = 128 * KILOBYTE; // TODO(sen) How much?
+        // NOTE(sen) Both of these should be more than anybody will ever need per page
+        let total_supported_components = 131072;
+        let total_supported_simultaneous_arguments = 131072;
 
         let input_path_size = MAX_PATH_BYTES;
         let output_path_size = MAX_PATH_BYTES;
         let components_size = total_supported_components * core::mem::size_of::<NameValue>();
         let component_names_size = total_supported_components * MAX_FILENAME_BYTES;
-        let component_contents_size = total_supported_components * expected_average_component_size;
-        let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
-        let input_size = 10 * MEGABYTE; // TODO(sen) How much?
-        let output_size = 409; // TODO(sen) This should be the maximum html file size
+        let component_contents_size = total_html_file_size;
+        let component_arguments_size =
+            total_supported_simultaneous_arguments * core::mem::size_of::<NameValue>();
+        let input_size = total_html_file_size;
+        let output_size = max_html_file_size.max(10 * MEGABYTE);
 
         let total_size = input_path_size
             + output_path_size
@@ -79,15 +86,18 @@ pub fn run(args: RunArguments) {
         log_debug_title("MEMORY");
         log_debug!("Input path: {}B\n", input_path_size);
         log_debug!("Output path: {}B\n", output_path_size);
-        log_debug!("Components: {}KB\n", components_size / 1024);
-        log_debug!("Component names: {}KB\n", component_names_size / 1024);
+        log_debug!("Components: {}MB\n", components_size / 1024 / 1024);
+        log_debug!(
+            "Component names: {}MB\n",
+            component_names_size / 1024 / 1024
+        );
         log_debug!(
             "Component contents: {}MB\n",
             component_contents_size / 1024 / 1024
         );
         log_debug!(
-            "Component arguments: {}KB\n",
-            component_arguments_size / 1024
+            "Component arguments: {}MB\n",
+            component_arguments_size / 1024 / 1024
         );
         log_debug!("Input: {}MB\n", input_size / 1024 / 1024);
         log_debug!("Output: {}MB\n", output_size / 1024 / 1024);
