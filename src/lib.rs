@@ -65,7 +65,7 @@ pub fn run(args: RunArguments) {
         let component_contents_size = total_supported_components * expected_average_component_size;
         let component_arguments_size = 512 * core::mem::size_of::<NameValue>(); // TODO(sen) How many?
         let input_size = 10 * MEGABYTE; // TODO(sen) How much?
-        let output_size = 10 * MEGABYTE;
+        let output_size = 10 * MEGABYTE; // TODO(sen) This should be the maximum html file size
 
         let total_size = input_path_size
             + output_path_size
@@ -320,7 +320,6 @@ impl MemoryArena {
         result
     }
     fn push_size(&mut self, size: usize) -> *mut u8 {
-        // TODO(sen) Continuously flush if we can't fit the size in one go
         if self.size - self.used < size {
             if let Some(flush_file) = self.flush_file {
                 if platform::os::append_to_file(&flush_file, self.base, self.used).is_err() {
