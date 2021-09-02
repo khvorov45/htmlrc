@@ -296,14 +296,14 @@ impl<T> ConstPointer<T> for *mut T {
 
 trait MutPointer<T> {
     fn deref_and_assign(&self, other: T);
-    fn as_ref_mut(&mut self) -> &mut T;
+    fn get_ref_mut(&mut self) -> &mut T;
 }
 
 impl<T> MutPointer<T> for *mut T {
     fn deref_and_assign(&self, other: T) {
         unsafe { **self = other }
     }
-    fn as_ref_mut(&mut self) -> &mut T {
+    fn get_ref_mut(&mut self) -> &mut T {
         unsafe { &mut **self }
     }
 }
@@ -403,11 +403,11 @@ struct TemporaryMemory {
 
 impl TemporaryMemory {
     fn reset(&mut self) {
-        self.arena.as_ref_mut().used = self.used_before;
+        self.arena.get_ref_mut().used = self.used_before;
     }
     fn end(mut self) {
         let used_before = self.used_before;
-        let arena = self.arena.as_ref_mut();
+        let arena = self.arena.get_ref_mut();
         debug_assert!(arena.temporary_count >= 1);
         arena.temporary_count -= 1;
         arena.used = used_before;
@@ -542,28 +542,28 @@ impl Filepath {
     }
     fn new_path(&mut self, entry: String) -> &mut Self {
         self.complete = false;
-        let arena = self.arena.as_ref_mut();
+        let arena = self.arena.get_ref_mut();
         arena.used = 0;
         arena.push_and_copy(entry.ptr, entry.size);
         self
     }
     fn add_entry(&mut self, entry: String) -> &mut Self {
         debug_assert!(!self.complete);
-        let arena = self.arena.as_ref_mut();
+        let arena = self.arena.get_ref_mut();
         arena.push_byte(platform::os::PATH_SEP as u8);
         arena.push_and_copy(entry.ptr, entry.size);
         self
     }
     fn add_ext(&mut self, ext: String) -> &mut Self {
         debug_assert!(!self.complete);
-        let arena = self.arena.as_ref_mut();
+        let arena = self.arena.get_ref_mut();
         arena.push_byte(b'.');
         arena.push_and_copy(ext.ptr, ext.size);
         self
     }
     fn get_string(&mut self) -> String {
         debug_assert!(!self.complete);
-        let arena = self.arena.as_ref_mut();
+        let arena = self.arena.get_ref_mut();
         arena.push_byte(b'\0');
         self.complete = true;
         String {
@@ -597,7 +597,7 @@ impl NameValueArray {
         None
     }
     fn new_empty_entry(&mut self) -> *mut NameValue {
-        let entry = self.arena.as_ref_mut().push_struct::<NameValue>();
+        let entry = self.arena.get_ref_mut().push_struct::<NameValue>();
         if self.count == 0 {
             self.first = entry;
         }
@@ -729,7 +729,7 @@ impl Tokeniser {
                         size: arg_value_size,
                     };
                     let mut arg_ptr = tag.args.new_empty_entry();
-                    let arg = arg_ptr.as_ref_mut();
+                    let arg = arg_ptr.get_ref_mut();
                     arg.name = arg_name;
                     arg.value = arg_value;
                 }
@@ -838,7 +838,7 @@ fn resolve(
     if string.size > 0 {
         let mut tokeniser = Tokeniser::new(string);
         let mut argument_memory = memory.component_arguments.begin_temporary();
-        while let Some(token) = tokeniser.next_token(argument_memory.arena.as_ref_mut()) {
+        while let Some(token) = tokeniser.next_token(argument_memory.arena.get_ref_mut()) {
             match token? {
                 Token::String(string) => {
                     memory.output.push_and_copy(string.ptr, string.size);
@@ -955,7 +955,7 @@ fn resolve(
                         return Err(Error {});
                     }
                     let mut dest = components.new_empty_entry();
-                    let dest = dest.as_ref_mut();
+                    let dest = dest.get_ref_mut();
                     dest.name = String::copy(&mut memory.component_names, inline_component.name);
                     dest.value =
                         String::copy(&mut memory.component_contents, inline_component.value);
