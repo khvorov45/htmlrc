@@ -65,6 +65,12 @@ pub fn run(args: RunArguments) {
             }
         };
 
+    if max_html_file_size == 0 || total_html_file_size == 0 {
+        log_info!("No html input found in {}", input_dir);
+        exit();
+        return;
+    }
+
     let mut memory = {
         // NOTE(sen) Both of these should be more than anybody will ever need per page
         let total_supported_components = 131072;
