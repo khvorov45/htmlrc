@@ -780,6 +780,7 @@ impl Tokeniser {
                     ptr: value_base,
                     size: value_size_plus_one - 1,
                 };
+                let value = value.trim();
                 self.advance();
                 Some(Ok(Token::InlineComponent(NameValue { name, value })))
             }
