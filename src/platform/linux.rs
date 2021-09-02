@@ -93,6 +93,7 @@ pub(crate) fn create_empty_file(path: &String) -> Result<()> {
     }
 
     if file_handle >= 0 {
+        unsafe { close(file_handle) };
         Ok(())
     } else {
         let _errno = unsafe { *__errno_location() };
@@ -107,13 +108,11 @@ pub(crate) fn append_to_file(path: &String, ptr: *const u8, size: usize) -> Resu
 
     if file_handle >= 0 {
         let write_result = unsafe { write(file_handle, ptr.cast(), size) };
+        unsafe { close(file_handle) };
         if write_result == -1 {
             let _errno = unsafe { *__errno_location() };
             Err(Error {})
         } else {
-            unsafe {
-                close(file_handle);
-            }
             Ok(())
         }
     } else {
@@ -146,13 +145,12 @@ pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<Strin
     if file_handle >= 0 {
         let file_size = get_file_size(file_handle);
         let dest = memory.push_size(file_size);
-
         let read_result = unsafe { read(file_handle, dest.cast(), file_size) };
+        unsafe { close(file_handle) };
         if read_result == -1 {
             let _errno = unsafe { *__errno_location() };
             Err(Error {})
         } else {
-            unsafe { close(file_handle) };
             Ok(String {
                 ptr: dest,
                 size: file_size,
