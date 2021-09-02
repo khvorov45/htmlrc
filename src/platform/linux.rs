@@ -1,4 +1,7 @@
-use crate::{ConstPointer, Error, MemoryArena, PointerDeref, Result, RunArguments, String};
+use crate::{
+    ConstPointer, Error, Filepath, MemoryArena, MutPointer, PointerDeref, Result, RunArguments,
+    String, ToString, MEGABYTE,
+};
 
 pub(crate) const PATH_SEP: char = '/';
 pub(crate) const MAX_PATH_BYTES: usize = 4096;
@@ -119,10 +122,9 @@ pub(crate) fn append_to_file(path: &String, ptr: *const u8, size: usize) -> Resu
     }
 }
 
-pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<String> {
+fn get_file_size(handle: i32) -> usize {
     extern "system" {
         fn fstat(file: i32, buffer: *mut stat) -> i32;
-        fn read(file: i32, buffer: *mut Void, bytes_to_read: usize) -> isize;
     }
     #[repr(C)]
     struct stat {
@@ -130,15 +132,19 @@ pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<Strin
         st_size: i64,
         _unused_back: [u64; 11],
     }
+    let mut file_info: stat = unsafe { core::mem::MaybeUninit::zeroed().assume_init() };
+    unsafe { fstat(handle, &mut file_info) };
+    file_info.st_size as usize
+}
+
+pub(crate) fn read_file(memory: &mut MemoryArena, path: &String) -> Result<String> {
+    extern "system" {
+        fn read(file: i32, buffer: *mut Void, bytes_to_read: usize) -> isize;
+    }
 
     let file_handle = unsafe { open(path.ptr.cast(), 0) };
-
     if file_handle >= 0 {
-        let file_size = unsafe {
-            let mut file_info: stat = core::mem::MaybeUninit::zeroed().assume_init();
-            fstat(file_handle, &mut file_info);
-            file_info.st_size as usize
-        };
+        let file_size = get_file_size(file_handle);
         let dest = memory.push_size(file_size);
 
         let read_result = unsafe { read(file_handle, dest.cast(), file_size) };
@@ -260,4 +266,115 @@ pub(crate) fn get_seconds_from(timespec: &TimeSpec) -> f32 {
     let seconds = now.seconds - timespec.seconds;
     let nanoseconds = now.nanoseconds - timespec.nanoseconds;
     seconds as f32 + nanoseconds as f32 * 1e-9
+}
+
+pub(crate) fn get_max_and_total_html_size(dir_path: &str) -> Result<(usize, usize)> {
+    extern "system" {
+        fn munmap(ptr: *mut Void, size: usize) -> i32;
+        fn getdents64(handle: i32, buffer: *mut Void, buffer_size: usize) -> isize;
+    }
+
+    let (mut filepath, mut memory) = {
+        let filepath_size = MAX_PATH_BYTES;
+        let dir_read_memory_size = 10 * MEGABYTE;
+        let total_size = filepath_size + dir_read_memory_size;
+        let memory_base_ptr = match allocate_and_clear(total_size) {
+            Ok(ptr) => ptr,
+            Err(_) => return Err(Error {}),
+        };
+        let mut offset = 0;
+        let mut filepath_memory = MemoryArena::new(memory_base_ptr, &mut offset, filepath_size);
+        let dir_read_memory = MemoryArena::new(memory_base_ptr, &mut offset, dir_read_memory_size);
+        debug_assert!(offset == total_size);
+        let filepath = Filepath::new(&mut filepath_memory);
+        (filepath, dir_read_memory)
+    };
+
+    let dir_path_string = filepath.new_path(dir_path.to_string()).get_string();
+
+    const O_RDONLY: i32 = 0;
+    const O_DIRECTORY: i32 = 0x10000;
+    let dir_handle = unsafe { open(dir_path_string.ptr.cast(), O_RDONLY | O_DIRECTORY) };
+    if dir_handle == -1 {
+        return Err(Error {});
+    }
+
+    let mut largest_html_file_size = 0;
+    let mut total_html_file_size = 0;
+
+    #[repr(C)]
+    struct linux_dirent64 {
+        ignore: [i64; 2],
+        dirent_size: u16,
+        ignore2: u8,
+        name_start: i8,
+    }
+    loop {
+        let bytes_read = unsafe { getdents64(dir_handle, memory.base.cast(), memory.size) };
+        if bytes_read == -1 {
+            return Err(Error {});
+        }
+        if bytes_read == 0 {
+            break;
+        }
+
+        let mut current_dirent_ptr = memory.base;
+        let mut bytes_processed = 0;
+        while bytes_processed < bytes_read {
+            let entry = current_dirent_ptr.cast::<linux_dirent64>();
+            let entry = entry.get_ref();
+
+            current_dirent_ptr = current_dirent_ptr.plus(entry.dirent_size as usize);
+            bytes_processed += entry.dirent_size as isize;
+
+            // NOTE(sen) Read name backwards
+            let name_end_ptr = {
+                let mut result = current_dirent_ptr.minus(1);
+                while result.deref() == b'\0' {
+                    result = result.minus(1);
+                }
+                result
+            };
+            let target = b"lmth";
+            let mut is_target = true;
+            #[allow(clippy::needless_range_loop)]
+            for offset in 0..target.len() {
+                let name_char = name_end_ptr.minus(offset);
+                if name_char.deref() != target[offset] {
+                    is_target = false;
+                    break;
+                }
+            }
+
+            // NOTE(sen) Read size
+            if is_target {
+                let filename_base = &entry.name_start as *const i8;
+                let filename_string = String {
+                    ptr: filename_base.cast(),
+                    size: name_end_ptr as usize - filename_base as usize + 1,
+                };
+                let full_filepath = filepath
+                    .new_path(dir_path.to_string())
+                    .add_entry(filename_string)
+                    .get_string();
+                let file_handle = unsafe { open(full_filepath.ptr.cast(), O_RDONLY) };
+                if file_handle >= 0 {
+                    let file_size = get_file_size(file_handle);
+                    total_html_file_size += file_size;
+                    largest_html_file_size = largest_html_file_size.max(file_size);
+                    unsafe { close(file_handle) };
+                }
+            }
+        }
+
+        // NOTE(sen) Clear for the next round
+        for offset in 0..memory.used {
+            memory.base.plus(offset).deref_and_assign(0);
+        }
+        memory.used = 0;
+    }
+
+    let _free_result = unsafe { munmap(memory.base.cast(), memory.size) };
+    let _close_result = unsafe { close(dir_handle) };
+    Ok((largest_html_file_size, total_html_file_size))
 }

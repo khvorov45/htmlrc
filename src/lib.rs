@@ -37,7 +37,8 @@ pub fn run(args: RunArguments) {
         arch::last_cycle_count,
         os::{
             allocate_and_clear, append_to_file, create_dir_if_not_exists, create_empty_file, exit,
-            get_seconds_from, get_timespec_now, read_file, MAX_FILENAME_BYTES, MAX_PATH_BYTES,
+            get_max_and_total_html_size, get_seconds_from, get_timespec_now, read_file,
+            MAX_FILENAME_BYTES, MAX_PATH_BYTES,
         },
     };
 
@@ -54,10 +55,15 @@ pub fn run(args: RunArguments) {
     log_debug!("output_dir: {}\n", &output_dir);
     log_debug_line_sep();
 
-    let (max_html_file_size, total_html_file_size) = {
-        // TODO(sen) Implement
-        (MEGABYTE, 10 * MEGABYTE)
-    };
+    let (max_html_file_size, total_html_file_size) =
+        match get_max_and_total_html_size(args.input_dir) {
+            Ok((a, b)) => (a, b),
+            Err(_) => {
+                log_error!("Failed to scan input directory {}\n", input_dir);
+                exit();
+                return;
+            }
+        };
 
     let mut memory = {
         // NOTE(sen) Both of these should be more than anybody will ever need per page
@@ -130,10 +136,7 @@ pub fn run(args: RunArguments) {
         debug_assert!(size_used == total_size);
 
         let output_file_path = {
-            let mut filepath = Filepath {
-                arena: &mut output_path,
-                complete: false,
-            };
+            let mut filepath = Filepath::new(&mut output_path);
 
             let output_dir_path = filepath.new_path(output_dir).get_string();
             if create_dir_if_not_exists(&output_dir_path).is_err() {
@@ -174,10 +177,7 @@ pub fn run(args: RunArguments) {
 
     let mut components = NameValueArray::new(&mut memory.components);
 
-    let mut filepath = Filepath {
-        arena: &mut memory.input_path,
-        complete: false,
-    };
+    let mut filepath = Filepath::new(&mut memory.input_path);
 
     let input_file_path = filepath
         .new_path(input_dir)
@@ -487,6 +487,7 @@ impl core::cmp::PartialEq<&str> for String {
 
 impl core::fmt::Display for String {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use core::fmt::Write;
         let source = self.ptr;
         for index in 0..self.size {
             f.write_char(source.plus(index).deref() as char)?;
@@ -527,6 +528,12 @@ struct Filepath {
 }
 
 impl Filepath {
+    fn new(arena: *mut MemoryArena) -> Self {
+        Self {
+            arena,
+            complete: false,
+        }
+    }
     fn new_path(&mut self, entry: String) -> &mut Self {
         self.complete = false;
         let arena = self.arena.as_ref_mut();
@@ -956,8 +963,6 @@ fn resolve(
 
 // SECTION Debug logging
 
-use core::fmt::Write;
-
 struct Log<'a> {
     buf: &'a mut [u8],
     offset: usize,
@@ -969,7 +974,7 @@ impl<'a> Log<'a> {
     }
 }
 
-impl<'a> Write for Log<'a> {
+impl<'a> core::fmt::Write for Log<'a> {
     fn write_str(&mut self, string: &str) -> core::fmt::Result {
         let source_full = string.as_bytes();
         let dest_full = &mut self.buf[self.offset..];
@@ -984,29 +989,30 @@ impl<'a> Write for Log<'a> {
 
 #[macro_export]
 macro_rules! log {
-    ($out:expr, $($arg:tt)*) => {
+    ($out:expr, $($arg:tt)*) => {{
+        use core::fmt::Write;
         let mut buf = [0; 100];
-        let _ = ::core::write!(Log::new(&mut buf), $($arg)*);
+        let _ = ::core::write!(crate::Log::new(&mut buf), $($arg)*);
         $out(buf.as_ptr(), buf.len());
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! log_debug {
     ($($arg:tt)*) => {
         #[cfg(debug_assertions)]
-        log!(crate::platform::os::write_stdout_raw, $($arg)*)
+        crate::log!(crate::platform::os::write_stdout_raw, $($arg)*)
     }
 }
 
 #[macro_export]
 macro_rules! log_error {
-    ($($arg:tt)*) => (log!(crate::platform::os::write_stderr_raw, $($arg)*))
+    ($($arg:tt)*) => (crate::log!(crate::platform::os::write_stderr_raw, $($arg)*))
 }
 
 #[macro_export]
 macro_rules! log_info {
-    ($($arg:tt)*) => (log!(crate::platform::os::write_stdout_raw, $($arg)*))
+    ($($arg:tt)*) => (crate::log!(crate::platform::os::write_stdout_raw, $($arg)*))
 }
 
 #[allow(dead_code)]
