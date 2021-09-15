@@ -3,7 +3,7 @@
   "tasks": [
     {
       "label": "odin build",
-      "type": "process",
+      "type": "shell",
       "command": "./build.sh",
       "group": {
         "kind": "build",
