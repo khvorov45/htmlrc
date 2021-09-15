@@ -1,0 +1,3 @@
+package htmlrc
+
+test :: proc() {}
