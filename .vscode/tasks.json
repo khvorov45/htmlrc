@@ -4,7 +4,12 @@
     {
       "label": "odin build",
       "type": "shell",
-      "command": "./build.sh",
+      "linux": {
+        "command": "./build.sh"
+      },
+      "windows": {
+        "command": ".\\build.bat"
+      },
       "group": {
         "kind": "build",
         "isDefault": true
