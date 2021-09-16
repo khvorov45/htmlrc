@@ -1,9 +1,13 @@
 {
   "rust-analyzer.checkOnSave.allTargets": false,
   "cSpell.words": [
+    "cmdline",
     "CREAT",
     "ENOENT",
+    "errno",
     "FILENO",
+    "fstat",
+    "htmlrc",
     "IRGRP",
     "IROTH",
     "IRUSR",
@@ -12,20 +16,18 @@
     "IWGRP",
     "IWUSR",
     "IXOTH",
-    "RDONLY",
-    "TRUNC",
-    "Tokeniser",
-    "WRONLY",
-    "errno",
-    "fstat",
-    "htmlrc",
     "lmth",
     "mkdir",
     "mmap",
     "nlink",
     "nsec",
+    "rawptr",
     "rdev",
+    "RDONLY",
     "rdtsc",
-    "repr"
+    "repr",
+    "Tokeniser",
+    "TRUNC",
+    "WRONLY"
   ]
 }
