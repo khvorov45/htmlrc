@@ -1,16 +1,16 @@
 package htmlrc_win32
 
-import "htmlrc"
-
 import "core:log"
 import "core:intrinsics"
+
+import "resolve"
 
 main :: proc() {
     count := intrinsics.read_cycle_counter();
     context.logger.procedure = logger_proc
     context.logger.data = &Log_Data{GetStdHandle(STD_OUTPUT_HANDLE)}
     log.debug("START\n")
-    htmlrc.resolve_one_string()
+    resolve.resolve_one_string()
     cycles_elapsed := intrinsics.read_cycle_counter() - count;
     log.debugf("cycles: %d\n", cycles_elapsed)
 }
