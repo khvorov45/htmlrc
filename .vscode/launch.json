@@ -47,11 +47,19 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "Odin linux",
       "type": "lldb",
       "request": "launch",
-      "name": "Odin debug",
       "program": "out/htmlrc",
       "args": ["input", "page-plain.html"]
+    },
+    {
+      "name": "Odin windows",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceRoot}/out/htmlrc.exe",
+      "args": ["input", "page-plain.html"],
+      "cwd": "${workspaceRoot}"
     }
   ]
 }
