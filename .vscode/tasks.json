@@ -45,8 +45,16 @@
     {
       "type": "cargo",
       "command": "run",
-      "label": "Execute",
+      "label": "Execute rust",
       "args": ["--", "input", "page-plain.html"]
+    },
+    {
+      "type": "process",
+      "windows": {
+        "command": "out/htmlrc.exe"
+      },
+      "label": "Execute",
+      "args": ["input", "page-plain.html"]
     }
   ]
 }
