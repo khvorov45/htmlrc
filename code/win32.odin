@@ -2,17 +2,40 @@ package htmlrc_win32
 
 import "core:log"
 import "core:intrinsics"
+import "core:fmt"
 
 import "resolve"
 
 main :: proc() {
-    count := intrinsics.read_cycle_counter();
+    context.user_ptr = &Context_Data{};
     context.logger.procedure = logger_proc
     context.logger.data = &Log_Data{GetStdHandle(STD_OUTPUT_HANDLE)}
-    log.debug("START\n")
+    // TODO(sen) Set up allocators
+
+    begin_timed_section(Timed_Section.Whole_Program)
+    defer end_timed_section(Timed_Section.Whole_Program)
+
     resolve.resolve_one_string()
-    cycles_elapsed := intrinsics.read_cycle_counter() - count;
-    log.debugf("cycles: %d\n", cycles_elapsed)
+}
+
+Context_Data :: struct {
+    cycle_counts: [Timed_Section.Count]i64,
+}
+
+begin_timed_section :: proc(section: Timed_Section) {
+    context_data := cast(^Context_Data)context.user_ptr
+    context_data.cycle_counts[section] = intrinsics.read_cycle_counter()
+}
+
+end_timed_section :: proc(section: Timed_Section) {
+    context_data := cast(^Context_Data)context.user_ptr
+    cycles_elapsed := intrinsics.read_cycle_counter() - context_data.cycle_counts[section]
+    log.debugf("%s cycles: %d\n", section, cycles_elapsed)
+}
+
+Timed_Section :: enum {
+    Whole_Program,
+    Count,
 }
 
 Log_Data :: struct {
