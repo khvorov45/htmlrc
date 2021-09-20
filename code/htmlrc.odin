@@ -1,4 +1,4 @@
-package htmlrc_win32
+package htmlrc
 
 import "core:log"
 import "core:intrinsics"
