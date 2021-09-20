@@ -5,8 +5,6 @@ import "core:intrinsics"
 import "core:fmt"
 import "core:mem"
 
-import "resolve"
-
 main :: proc() {
     context.user_ptr = &Context_Data{};
     context.logger.procedure = logger_proc
@@ -27,8 +25,6 @@ main :: proc() {
     scratch := mem.Scratch_Allocator{}
     mem.scratch_allocator_init(&scratch, scratch_memory_size)
     context.temp_allocator = mem.scratch_allocator(&scratch)
-
-    resolve.resolve_one_string()
 }
 
 Context_Data :: struct {
