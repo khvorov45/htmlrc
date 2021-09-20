@@ -4,6 +4,7 @@ import "core:log"
 import "core:intrinsics"
 import "core:fmt"
 import "core:mem"
+import "core:os"
 
 main :: proc() {
     context.user_ptr = &Context_Data{};
@@ -11,7 +12,7 @@ main :: proc() {
     begin_timed_section(Timed_Section.Whole_Program)
 
     main_memory_size := 10 * 1024 * 1024
-    scratch_memory_size := 1024
+    scratch_memory_size := 1
     total_memory_size := main_memory_size + scratch_memory_size
 
     program_memory := mem.alloc(total_memory_size)
@@ -22,10 +23,9 @@ main :: proc() {
 
     scratch := mem.Scratch_Allocator{}
     mem.scratch_allocator_init(&scratch, scratch_memory_size)
-    // TODO(sen) Should this be for internal builds only?
-    scratch.backup_allocator.procedure = mem.panic_allocator_proc
+    when ODIN_DEBUG do scratch.backup_allocator = mem.panic_allocator()
+    when !ODIN_DEBUG do scratch.backup_allocator = os.heap_allocator()
     context.temp_allocator = mem.scratch_allocator(&scratch)
-
     end_timed_section(Timed_Section.Whole_Program)
 }
 
