@@ -51,7 +51,7 @@
       "type": "lldb",
       "request": "launch",
       "program": "out/htmlrc",
-      "args": ["input", "page-plain.html"]
+      "args": ["input/page-plain.html"]
     },
     {
       "name": "Odin windows",

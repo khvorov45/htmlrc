@@ -30,6 +30,7 @@
     "rdtsc",
     "repr",
     "Tokeniser",
+    "tprint",
     "TRUNC",
     "WRONLY"
   ]
