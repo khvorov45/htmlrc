@@ -50,6 +50,7 @@
     },
     {
       "type": "process",
+      "command": "out/htmlrc",
       "windows": {
         "command": "out/htmlrc.exe"
       },
