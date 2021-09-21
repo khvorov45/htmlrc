@@ -7,6 +7,7 @@
     "debugf",
     "ENOENT",
     "errno",
+    "errorf",
     "FILENO",
     "fstat",
     "htmlrc",
