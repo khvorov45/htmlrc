@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:strings"
-import "core:path"
+import "core:path/filepath"
 import "core:unicode"
 import "core:unicode/utf8"
 
@@ -69,7 +69,7 @@ main :: proc() {
                 return
             }
         } else if strings.has_suffix(input_stat.name, ".html") {
-            input_dir = path.dir(input_stat.fullpath)
+            input_dir = filepath.dir(input_stat.fullpath)
             // NOTE(sen) Allow any name for single-file mode
             append(&input_pages, input_stat)
         } else {
@@ -121,7 +121,7 @@ main :: proc() {
         }
         input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components)
         if resolve_success {
-            output_path := path.join(output_dir, input_page.name)
+            output_path := filepath.join(output_dir, input_page.name)
             defer delete(output_path)
             write_success := os.write_entire_file(output_path, transmute([]byte)input_resolved)
             if !write_success {
@@ -250,9 +250,6 @@ resolve_one_string :: proc(input: string, components: ^map[string]string) -> (st
 
         used_component_name := used_component_search[:first_non_alphanum]
         log.debugf("found: `%s`", used_component_name)
-        used_component_filepath =
-
-        used_component_path =
 
         used_component_search = used_component_search[first_non_alphanum:]
 
