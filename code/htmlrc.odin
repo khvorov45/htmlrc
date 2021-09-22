@@ -13,6 +13,7 @@ COMPONENT_PREFIX :: "_"
 main :: proc() {
     context.user_ptr = &Context_Data{};
     context.logger.procedure = logger_proc
+    when !ODIN_DEBUG do context.logger.lowest_level = log.Level.Info
     begin_timed_section(Timed_Section.Whole_Program)
 
     if len(os.args) == 1 || os.args[1] == "--help" || os.args[1] == "-help" || os.args[1] == "help" || os.args[1] == "-h" {
@@ -74,15 +75,13 @@ main :: proc() {
             return
         }
 
-        when ODIN_DEBUG {
-            log.debugf("input dir: %s", input_dir)
-            log.debugf("input pages:")
-            for input_page in input_pages {
-                log.debugf("%s", input_page.name)
-            }
-            log.debugf("")
+        log.debugf("input dir: %s", input_dir)
+        log.debugf("input pages:")
+        for input_page in input_pages {
+            log.debugf("%s", input_page.name)
         }
-    }
+        log.debugf("")
+}
 
     end_timed_section(Timed_Section.Whole_Program)
 }

@@ -24,6 +24,7 @@
     "mmap",
     "nlink",
     "nsec",
+    "println",
     "rawptr",
     "rdev",
     "RDONLY",
