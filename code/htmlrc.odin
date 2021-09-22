@@ -119,7 +119,7 @@ main :: proc() {
             log.errorf("failed to read input '%s'", input_page.name)
             return
         }
-        input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components)
+        input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components, input_dir)
         if resolve_success {
             output_path := filepath.join(output_dir, input_page.name)
             defer delete(output_path)
@@ -190,7 +190,7 @@ foreign libc {
 
 }
 
-resolve_one_string :: proc(input: string, components: ^map[string]string) -> (string, bool) {
+resolve_one_string :: proc(input: string, components: ^map[string]string, input_dir: string) -> (string, bool) {
     log.debugf("looking for inline components")
     component_search_string := input
     for {
@@ -250,6 +250,9 @@ resolve_one_string :: proc(input: string, components: ^map[string]string) -> (st
 
         used_component_name := used_component_search[:first_non_alphanum]
         log.debugf("found: `%s`", used_component_name)
+
+        used_component_path := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, used_component_name, ".html"})
+        log.debugf("path: `%s`", used_component_path)
 
         used_component_search = used_component_search[first_non_alphanum:]
 
