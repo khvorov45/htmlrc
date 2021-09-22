@@ -58,7 +58,7 @@
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceRoot}/out/htmlrc.exe",
-      "args": ["input", "page-plain.html"],
+      "args": ["input/page-plain.html"],
       "cwd": "${workspaceRoot}"
     }
   ]

@@ -89,7 +89,7 @@ main :: proc() {
         if len(os.args) >= 3 {
             output = os.args[2]
         }
-        log.debugf("output dir: %s", output)
+        log.debugf("output dir: %s\n", output)
 
         output_handle, open_err := os.open(output)
         if open_err == os.ERROR_NONE {
@@ -109,22 +109,24 @@ main :: proc() {
         os.close(output_handle)
     }
 
-    log.debugf("wrote output:")
     components : map[string]string
     for input_page in input_pages {
+        log.debugf("starting resolution of %s", input_page.name)
         input_page_contents, read_success := os.read_entire_file(input_page.fullpath)
         if !read_success {
             log.errorf("failed to read input '%s'", input_page.name)
             return
         }
-        input_resolved := resolve_one_string(string(input_page_contents), &components)
-        output_path := path.join(output_dir, input_page.name)
-        defer delete(output_path)
-        write_success := os.write_entire_file(output_path, transmute([]byte)input_resolved)
-        if !write_success {
-            log.errorf("failed to write output '%s'", output_path)
+        input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components)
+        if resolve_success {
+            output_path := path.join(output_dir, input_page.name)
+            defer delete(output_path)
+            write_success := os.write_entire_file(output_path, transmute([]byte)input_resolved)
+            if !write_success {
+                log.errorf("failed to write output '%s'", output_path)
+            }
+            log.debugf("wrote output: %s", output_path)
         }
-        log.debugf("%s", output_path)
     }
     log.debugf("")
 
@@ -186,6 +188,42 @@ foreign libc {
 
 }
 
-resolve_one_string :: proc(input: string, components: ^map[string]string) -> string {
-    return input
+resolve_one_string :: proc(input: string, components: ^map[string]string) -> (string, bool) {
+    log.debugf("looking for inline components")
+    component_search_string := input
+    for {
+        inline_component_start := "{{"
+        inline_component_end := "}}"
+        component_start := strings.index(component_search_string, inline_component_start)
+        if component_start == -1 do break
+        component_search_string = component_search_string[component_start + len(inline_component_start):]
+
+        first_whitespace := strings.index_proc(component_search_string, strings.is_space)
+        if first_whitespace == -1 {
+            log.errorf("inline component is incomplete")
+            return "", false
+        }
+
+        component_name := component_search_string[:first_whitespace]
+        log.debugf("found: `%s`", component_name)
+
+        component_search_string = component_search_string[first_whitespace + 1:]
+
+        component_end := strings.index(component_search_string, inline_component_end)
+        if component_end == -1 {
+            log.errorf("component %s does not end with '%s'", component_name, inline_component_start)
+            return "", false
+        }
+
+        component_contents := component_search_string[:component_end]
+
+        components[component_name] = strings.trim_space(component_contents)
+
+        component_search_string = component_search_string[component_end + len(inline_component_end):]
+    }
+    log.debugf("")
+
+    log.debug(components)
+
+    return input, true
 }
