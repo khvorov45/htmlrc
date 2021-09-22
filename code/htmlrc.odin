@@ -7,6 +7,8 @@ import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:path"
+import "core:unicode"
+import "core:unicode/utf8"
 
 COMPONENT_PREFIX :: "_"
 
@@ -222,6 +224,49 @@ resolve_one_string :: proc(input: string, components: ^map[string]string) -> (st
         component_search_string = component_search_string[component_end + len(inline_component_end):]
     }
     log.debugf("")
+
+    log.debug("looking for components used")
+    used_component_search := input
+    for {
+        used_component_index := -1
+        for ch, index in used_component_search[:len(used_component_search) - 1] {
+            if ch == '<' && unicode.is_upper(utf8.rune_at_pos(used_component_search, index + 1)) {
+                used_component_index = index
+                break
+            }
+        }
+
+        if used_component_index == -1 do break
+
+        used_component_search = used_component_search[used_component_index + 1:]
+
+        is_not_alphanum :: proc(ch: rune) -> bool { return !unicode.is_alpha(ch) && !unicode.is_number(ch) }
+
+        first_non_alphanum := strings.index_proc(used_component_search, is_not_alphanum)
+        if first_non_alphanum == -1 {
+            log.errorf("used component is incomplete")
+            return "", false
+        }
+
+        used_component_name := used_component_search[:first_non_alphanum]
+        log.debugf("found: `%s`", used_component_name)
+        used_component_filepath =
+
+        used_component_path =
+
+        used_component_search = used_component_search[first_non_alphanum:]
+
+        // TODO(sen) Parse arguments
+
+        used_component_end_mark := "/>"
+        used_component_end := strings.index(used_component_search, used_component_end_mark)
+        if used_component_end == -1 {
+            log.errorf("component %s does not end with '%s'", used_component_name, used_component_end_mark)
+            return "", false
+        }
+
+        used_component_search = used_component_search[used_component_end + len(used_component_end_mark):]
+    }
 
     log.debug(components)
 
