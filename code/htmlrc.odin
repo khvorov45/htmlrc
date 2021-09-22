@@ -299,22 +299,61 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
             }
         }
 
-        // TODO(sen) Parse arguments
+        used_component_end_mark := "/>"
+        used_component_end := strings.index(used_component_search, used_component_end_mark)
+        if used_component_end == -1 {
+            log.errorf("component %s does not end with %s", used_component_name, used_component_end_mark)
+            return "", false
+        }
 
+        arg_search := used_component_search[:used_component_end]
+        used_component_search = used_component_search[used_component_end + len(used_component_end_mark):]
+
+        args: map[string]string
+        for {
+            if len(arg_search) == 0 {
+                break
+            }
+            if unicode.is_alpha(utf8.rune_at_pos(arg_search, 0)) {
+                name_end := strings.index_proc(arg_search, is_not_alphanum)
+                if name_end == -1 {
+                    log.error("argument is incomplete")
+                    return "", false
+                }
+                arg_name := arg_search[:name_end]
+                arg_search = arg_search[name_end:]
+                equals := strings.index_rune(arg_search, '=')
+                if equals == -1 || equals == len(arg_search) - 1 {
+                    log.errorf("argument %s is incomplete", arg_name)
+                    return "", false
+                }
+                arg_search = arg_search[equals + 1:]
+                arg_content_start := strings.index_rune(arg_search, '"')
+                if arg_content_start == -1 || arg_content_start == len(arg_search) - 1  {
+                    log.errorf("argument %s is incomplete", arg_name)
+                    return "", false
+                }
+                arg_search = arg_search[arg_content_start + 1:]
+                arg_content_end := strings.index_rune(arg_search, '"')
+                if arg_content_end == -1 {
+                    log.errorf("argument %s is incomplete", arg_name)
+                    return "", false
+                }
+                args[arg_name] = arg_search[:arg_content_end]
+                arg_search = arg_search[arg_content_end + 1:]
+            } else {
+                arg_search = arg_search[1:]
+            }
+        }
+        log.debugf("{}", args)
+
+        // TODO(sen) Use the obtained args
         resolved_component_contents, success := resolve_one_string(used_component_contents, components, input_dir)
         if !success {
             return "", false
         }
+        delete(args)
         append(&output, resolved_component_contents)
-
-        used_component_end_mark := "/>"
-        used_component_end := strings.index(used_component_search, used_component_end_mark)
-        if used_component_end == -1 {
-            log.errorf("component %s does not end with '%s'", used_component_name, used_component_end_mark)
-            return "", false
-        }
-
-        used_component_search = used_component_search[used_component_end + len(used_component_end_mark):]
     }
 
     output_string := strings.concatenate(output[:])
