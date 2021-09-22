@@ -25,7 +25,7 @@ main :: proc() {
 
     format_os_error :: proc(err: os.Errno) -> string {
         switch err {
-            case 2: return "entry does not exist"
+            case ERROR_FILE_NOT_FOUND: return "entry does not exist"
             case: return fmt.tprint("error code", err)
         }
     }
@@ -96,9 +96,8 @@ main :: proc() {
         output_handle, open_err := os.open(output)
         if open_err == os.ERROR_NONE {
             output_dir = output
-        } else if open_err == os.ENOENT {
-            mode := os.S_IXUSR | os.S_IRUSR | os.S_IWUSR | os.S_IXGRP | os.S_IRGRP | os.S_IWGRP | os.S_IXOTH | os.S_IROTH
-            make_dir_err := make_directory(output, mode)
+        } else if open_err == ERROR_FILE_NOT_FOUND {
+            make_dir_err := make_directory(output)
             if make_dir_err != os.ERROR_NONE {
                 log.errorf("failed to create output dir '%s': %s", output, format_os_error(make_dir_err))
                 return
@@ -161,13 +160,22 @@ logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.O
 
 when ODIN_OS == "windows" {
 
-make_directory :: proc(path: string, mode: u32) -> os.Errno {
-    return os.make_directory(path, mode)
+ERROR_FILE_NOT_FOUND :: os.ERROR_FILE_NOT_FOUND
+
+make_directory :: proc(path: string) -> os.Errno {
+    result := os.make_directory(path, 0)
+    if result == os.ERROR_PATH_NOT_FOUND {
+        return os.Errno(ERROR_FILE_NOT_FOUND)
+    }
+    return os.ERROR_NONE
 }
 
 } else {
 
-make_directory :: proc(path: string, mode: int) -> os.Errno {
+ERROR_FILE_NOT_FOUND :: os.ENOENT
+
+make_directory :: proc(path: string) -> os.Errno {
+    mode := os.S_IXUSR | os.S_IRUSR | os.S_IWUSR | os.S_IXGRP | os.S_IRGRP | os.S_IWGRP | os.S_IXOTH | os.S_IROTH
   	cstr := strings.clone_to_cstring(path)
     result := _unix_mkdir(cstr, i32(mode))
     delete(cstr)
