@@ -277,6 +277,8 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
         used_component_name := used_component_search[:first_non_alphanum]
         log.debugf("found: `%s`", used_component_name)
 
+        used_component_search = used_component_search[first_non_alphanum:]
+
         used_component_contents: string
         {
             contents, present := components[used_component_name]
@@ -297,12 +299,13 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
             }
         }
 
-
-        used_component_search = used_component_search[first_non_alphanum:]
-
         // TODO(sen) Parse arguments
 
-        // TODO(sen) Write resolved component contents
+        resolved_component_contents, success := resolve_one_string(used_component_contents, components, input_dir)
+        if !success {
+            return "", false
+        }
+        append(&output, resolved_component_contents)
 
         used_component_end_mark := "/>"
         used_component_end := strings.index(used_component_search, used_component_end_mark)
