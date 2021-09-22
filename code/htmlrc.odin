@@ -199,13 +199,24 @@ foreign libc {
 }
 
 resolve_one_string :: proc(input: string, components: ^map[string]string, input_dir: string) -> (string, bool) {
+
+    if len(input) < 4 {
+        return strings.clone(input), true
+    }
+
+    no_inline_components: [dynamic]string
+
     log.debugf("looking for inline components")
     component_search_string := input
     for {
         inline_component_start := "{{"
         inline_component_end := "}}"
         component_start := strings.index(component_search_string, inline_component_start)
-        if component_start == -1 do break
+        if component_start == -1 {
+            append(&no_inline_components, component_search_string)
+            break
+        }
+        append(&no_inline_components, component_search_string[:component_start])
         component_search_string = component_search_string[component_start + len(inline_component_start):]
 
         first_whitespace := strings.index_proc(component_search_string, strings.is_space)
@@ -234,22 +245,29 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
     log.debugf("")
 
     log.debug("looking for components used")
-    used_component_search := input
+    used_component_search := strings.concatenate(no_inline_components[:])
+    delete(no_inline_components)
+    output: [dynamic]string
     for {
         used_component_index := -1
-        for ch, index in used_component_search[:len(used_component_search) - 1] {
-            if ch == '<' && unicode.is_upper(utf8.rune_at_pos(used_component_search, index + 1)) {
+        prev_char: rune = 0
+        for ch, index in used_component_search {
+            if prev_char == '<' && unicode.is_upper(ch) {
                 used_component_index = index
                 break
             }
+            prev_char = ch
         }
 
-        if used_component_index == -1 do break
+        if used_component_index == -1 {
+            append(&output, used_component_search)
+            break
+        }
 
-        used_component_search = used_component_search[used_component_index + 1:]
+        append(&output, used_component_search[:used_component_index - 1])
+        used_component_search = used_component_search[used_component_index:]
 
         is_not_alphanum :: proc(ch: rune) -> bool { return !unicode.is_alpha(ch) && !unicode.is_number(ch) }
-
         first_non_alphanum := strings.index_proc(used_component_search, is_not_alphanum)
         if first_non_alphanum == -1 {
             log.errorf("used component is incomplete")
@@ -259,12 +277,32 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
         used_component_name := used_component_search[:first_non_alphanum]
         log.debugf("found: `%s`", used_component_name)
 
-        used_component_path := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, used_component_name, ".html"})
-        log.debugf("path: `%s`", used_component_path)
+        used_component_contents: string
+        {
+            contents, present := components[used_component_name]
+            if present {
+                log.debug("found in loaded components")
+                used_component_contents = contents
+            } else {
+                log.debug("not found in loaded components")
+                used_component_path := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, COMPONENT_PREFIX, used_component_name, ".html"})
+                file_contents, success := os.read_entire_file(used_component_path)
+                if success {
+                    used_component_contents = strings.trim_space(string(file_contents))
+                    components[used_component_name] = used_component_contents
+                } else {
+                    log.errorf("could not read %s", used_component_path)
+                    return "", false
+                }
+            }
+        }
+
 
         used_component_search = used_component_search[first_non_alphanum:]
 
         // TODO(sen) Parse arguments
+
+        // TODO(sen) Write resolved component contents
 
         used_component_end_mark := "/>"
         used_component_end := strings.index(used_component_search, used_component_end_mark)
@@ -276,7 +314,8 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
         used_component_search = used_component_search[used_component_end + len(used_component_end_mark):]
     }
 
-    log.debug(components)
+    output_string := strings.concatenate(output[:])
+    delete(output)
 
-    return input, true
+    return output_string, true
 }
