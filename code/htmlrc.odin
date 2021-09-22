@@ -81,7 +81,7 @@ main :: proc() {
             log.debugf("%s", input_page.name)
         }
         log.debugf("")
-}
+    }
 
     end_timed_section(Timed_Section.Whole_Program)
 }
