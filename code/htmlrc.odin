@@ -24,7 +24,7 @@ main :: proc() {
     format_os_error :: proc(err: os.Errno) -> string {
         switch err {
             case 2: return "entry does not exist"
-            case: return fmt.tprint("error code %d", err)
+            case: return fmt.tprint("error code", err)
         }
     }
 
@@ -83,12 +83,52 @@ main :: proc() {
         log.debugf("")
     }
 
-    end_timed_section(Timed_Section.Whole_Program)
-}
+    output_dir: string
+    {
+        output := "build"
+        if len(os.args) >= 3 {
+            output = os.args[2]
+        }
+        log.debugf("output dir: %s", output)
 
-Name_Value :: struct {
-    name: string,
-    value: string,
+        output_handle, open_err := os.open(output)
+        if open_err == os.ERROR_NONE {
+            output_dir = output
+        } else if open_err == os.ENOENT {
+            mode := os.S_IXUSR | os.S_IRUSR | os.S_IWUSR | os.S_IXGRP | os.S_IRGRP | os.S_IWGRP | os.S_IXOTH | os.S_IROTH
+            make_dir_err := make_directory(output, mode)
+            if make_dir_err != os.ERROR_NONE {
+                log.errorf("failed to create output dir '%s': %s", output, format_os_error(make_dir_err))
+                return
+            }
+            output_dir = output
+        } else {
+            log.errorf("failed to open output '%s': %s", output, format_os_error(open_err))
+            return
+        }
+        os.close(output_handle)
+    }
+
+    log.debugf("wrote output:")
+    components : map[string]string
+    for input_page in input_pages {
+        input_page_contents, read_success := os.read_entire_file(input_page.fullpath)
+        if !read_success {
+            log.errorf("failed to read input '%s'", input_page.name)
+            return
+        }
+        input_resolved := resolve_one_string(string(input_page_contents), &components)
+        output_path := path.join(output_dir, input_page.name)
+        defer delete(output_path)
+        write_success := os.write_entire_file(output_path, transmute([]byte)input_resolved)
+        if !write_success {
+            log.errorf("failed to write output '%s'", output_path)
+        }
+        log.debugf("%s", output_path)
+    }
+    log.debugf("")
+
+    end_timed_section(Timed_Section.Whole_Program)
 }
 
 Context_Data :: struct {
@@ -113,4 +153,39 @@ Timed_Section :: enum {
 
 logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
     fmt.println(text)
+}
+
+when ODIN_OS == "windows" {
+
+make_directory :: proc(path: string, mode: u32) -> os.Errno {
+    return os.make_directory(path, mode)
+}
+
+} else {
+
+make_directory :: proc(path: string, mode: int) -> os.Errno {
+  	cstr := strings.clone_to_cstring(path)
+    result := _unix_mkdir(cstr, i32(mode))
+    delete(cstr)
+    if result == -1 {
+        return os.Errno(os.get_last_error())
+    }
+    return os.ERROR_NONE
+}
+
+when ODIN_OS == "darwin" {
+  foreign import libc "System.framework"
+} else {
+  foreign import libc "system:c"
+}
+
+@(default_calling_convention="c")
+foreign libc {
+	@(link_name="mkdir") _unix_mkdir :: proc(path: cstring, mode: i32) -> i32 ---
+}
+
+}
+
+resolve_one_string :: proc(input: string, components: ^map[string]string) -> string {
+    return input
 }
