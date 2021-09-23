@@ -14,7 +14,7 @@ COMPONENT_PREFIX :: "_"
 
 main :: proc() {
     context.user_ptr = &Context_Data{};
-    context.logger.procedure = logger_proc
+    context.logger.procedure = logger_proc // TODO(sen) Better logging
     when !ODIN_DEBUG do context.logger.lowest_level = log.Level.Info
     begin_timed_section(Timed_Section.Whole_Program)
 
@@ -118,7 +118,7 @@ main :: proc() {
             log.errorf("failed to read input '%s'", input_page.name)
             return
         }
-        input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components, input_dir)
+        input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components, nil, input_dir)
         if resolve_success {
             output_path := filepath.join(output_dir, input_page.name)
             defer delete(output_path)
@@ -198,11 +198,15 @@ foreign libc {
 
 }
 
-resolve_one_string :: proc(input: string, components: ^map[string]string, input_dir: string) -> (string, bool) {
-
+resolve_one_string :: proc(input: string, components: ^map[string]string, own_args: map[string]string, input_dir: string) -> (string, bool) {
+    // NOTE(sen) Need to at least have <A/> to have something to resolve
     if len(input) < 4 {
         return strings.clone(input), true
     }
+
+    //
+    // SECTION Process and remove inline component definitions
+    //
 
     no_inline_components: [dynamic]string
 
@@ -242,11 +246,51 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
 
         component_search_string = component_search_string[component_end + len(inline_component_end):]
     }
-    log.debugf("")
+
+    //
+    // SECTION Replace arguments with values
+    //
+
+    is_not_alphanum :: proc(ch: rune) -> bool { return !unicode.is_alpha(ch) && !unicode.is_number(ch) }
+
+    log.debug("replacing arguments with values")
+    argument_search := strings.concatenate(no_inline_components[:])
+    delete(no_inline_components)
+    no_arguments : [dynamic]string
+    for {
+        arg_index := strings.index_rune(argument_search, '$')
+        if arg_index == -1 || arg_index == len(argument_search) - 1 {
+            append(&no_arguments, argument_search)
+            break
+        }
+        append(&no_arguments, argument_search[:arg_index])
+        argument_search = argument_search[arg_index + 1:]
+        if unicode.is_alpha(utf8.rune_at_pos(argument_search, 0)) {
+            arg_name_end := strings.index_proc(argument_search, is_not_alphanum)
+            if arg_name_end == -1 {
+                arg_name_end = len(argument_search)
+            }
+            arg_name := argument_search[:arg_name_end]
+            log.debugf("found %s", arg_name)
+            arg_value, present := own_args[arg_name]
+            if !present {
+                log.errorf("argument %s used but not passed", arg_value)
+                return "", false
+            }
+            append(&no_arguments, arg_value)
+            argument_search = argument_search[arg_name_end:]
+        } else {
+            append(&no_arguments, "$")
+        }
+    }
+
+    //
+    // SECTION Process and resolve used components
+    //
 
     log.debug("looking for components used")
-    used_component_search := strings.concatenate(no_inline_components[:])
-    delete(no_inline_components)
+    used_component_search := strings.concatenate(no_arguments[:])
+    delete(no_arguments)
     output: [dynamic]string
     for {
         used_component_index := -1
@@ -267,7 +311,6 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
         append(&output, used_component_search[:used_component_index - 1])
         used_component_search = used_component_search[used_component_index:]
 
-        is_not_alphanum :: proc(ch: rune) -> bool { return !unicode.is_alpha(ch) && !unicode.is_number(ch) }
         first_non_alphanum := strings.index_proc(used_component_search, is_not_alphanum)
         if first_non_alphanum == -1 {
             log.errorf("used component is incomplete")
@@ -299,59 +342,56 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
             }
         }
 
-        used_component_end_mark := "/>"
-        used_component_end := strings.index(used_component_search, used_component_end_mark)
-        if used_component_end == -1 {
-            log.errorf("component %s does not end with %s", used_component_name, used_component_end_mark)
-            return "", false
-        }
-
-        arg_search := used_component_search[:used_component_end]
-        used_component_search = used_component_search[used_component_end + len(used_component_end_mark):]
-
         args: map[string]string
+        previous_rune := rune(0)
         for {
-            if len(arg_search) == 0 {
-                break
+            if len(used_component_search) == 0 {
+                log.errorf("used component %s is incomplete", used_component_name)
+                return "", false
             }
-            if unicode.is_alpha(utf8.rune_at_pos(arg_search, 0)) {
-                name_end := strings.index_proc(arg_search, is_not_alphanum)
+            current_rune := utf8.rune_at_pos(used_component_search, 0)
+            if unicode.is_alpha(current_rune) {
+                name_end := strings.index_proc(used_component_search, is_not_alphanum)
                 if name_end == -1 {
                     log.error("argument is incomplete")
                     return "", false
                 }
-                arg_name := arg_search[:name_end]
-                arg_search = arg_search[name_end:]
-                equals := strings.index_rune(arg_search, '=')
-                if equals == -1 || equals == len(arg_search) - 1 {
+                arg_name := used_component_search[:name_end]
+                used_component_search = used_component_search[name_end:]
+                equals := strings.index_rune(used_component_search, '=')
+                if equals == -1 || equals == len(used_component_search) - 1 {
                     log.errorf("argument %s is incomplete", arg_name)
                     return "", false
                 }
-                arg_search = arg_search[equals + 1:]
-                arg_content_start := strings.index_rune(arg_search, '"')
-                if arg_content_start == -1 || arg_content_start == len(arg_search) - 1  {
+                used_component_search = used_component_search[equals + 1:]
+                arg_content_start := strings.index_rune(used_component_search, '"')
+                if arg_content_start == -1 || arg_content_start == len(used_component_search) - 1  {
                     log.errorf("argument %s is incomplete", arg_name)
                     return "", false
                 }
-                arg_search = arg_search[arg_content_start + 1:]
-                arg_content_end := strings.index_rune(arg_search, '"')
+                used_component_search = used_component_search[arg_content_start + 1:]
+                arg_content_end := strings.index_rune(used_component_search, '"')
                 if arg_content_end == -1 {
                     log.errorf("argument %s is incomplete", arg_name)
                     return "", false
                 }
-                args[arg_name] = arg_search[:arg_content_end]
-                arg_search = arg_search[arg_content_end + 1:]
+                args[arg_name] = used_component_search[:arg_content_end]
+                used_component_search = used_component_search[arg_content_end + 1:]
+                previous_rune = rune(0)
             } else {
-                arg_search = arg_search[1:]
+                used_component_search = used_component_search[1:]
+                if current_rune == '>' && previous_rune == '/' {
+                    break
+                }
+                previous_rune = current_rune
             }
         }
         if len(args) > 0 {
             log.debugf("args of %s: {}", used_component_name, args)
         }
 
-        // TODO(sen) Use the obtained args
         log.debugf("\nstarting resolution of component %s\n", used_component_name)
-        resolved_component_contents, success := resolve_one_string(used_component_contents, components, input_dir)
+        resolved_component_contents, success := resolve_one_string(used_component_contents, components, args, input_dir)
         if !success {
             return "", false
         }
