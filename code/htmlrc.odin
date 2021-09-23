@@ -112,7 +112,7 @@ main :: proc() {
 
     components : map[string]string
     for input_page in input_pages {
-        log.debugf("starting resolution of %s", input_page.name)
+        log.debugf("starting resolution of %s\n", input_page.name)
         input_page_contents, read_success := os.read_entire_file(input_page.fullpath)
         if !read_success {
             log.errorf("failed to read input '%s'", input_page.name)
@@ -345,13 +345,17 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, input_
                 arg_search = arg_search[1:]
             }
         }
-        log.debugf("{}", args)
+        if len(args) > 0 {
+            log.debugf("args of %s: {}", used_component_name, args)
+        }
 
         // TODO(sen) Use the obtained args
+        log.debugf("\nstarting resolution of component %s\n", used_component_name)
         resolved_component_contents, success := resolve_one_string(used_component_contents, components, input_dir)
         if !success {
             return "", false
         }
+        log.debugf("\nfinished resolution of %s\n", used_component_name)
         delete(args)
         append(&output, resolved_component_contents)
     }
