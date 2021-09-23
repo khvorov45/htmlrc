@@ -405,3 +405,83 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, own_ar
 
     return output_string, true
 }
+
+Token :: union {
+    PlainString,
+    Component,
+    ArgumentUsed,
+}
+
+PlainString :: struct {
+    value: string,
+}
+
+Component :: struct {
+    name: string,
+    args: map[string][]Token,
+}
+
+ArgumentUsed :: struct {
+    name: string,
+}
+
+construct_output :: proc(tokens: []Token, components: ^map[string][]Token, args: map[string]string, input_dir: string) -> (output: string, success: bool) {
+    output = ""
+    success = false
+    output_array: [dynamic]string
+    for token_type in tokens {
+        switch token in token_type {
+            case PlainString: append(&output_array, token.value, input_dir)
+            case Component: {
+                contents := get_component_contents(components, token.name, input_dir) or_return
+                args_resolved: map[string]string
+                for name, arg_tokens in token.args {
+                    args_resolved[name] = construct_output(arg_tokens, components, args, input_dir) or_return
+                }
+                contents_resolved := construct_output(contents, components, args_resolved, input_dir) or_return
+                delete(args_resolved)
+                append(&output_array, contents_resolved)
+            }
+            case ArgumentUsed: {
+                contents := get_argument_contents(args, token.name) or_return
+                append(&output_array, contents)
+            }
+        }
+    }
+    output = strings.concatenate(output_array[:])
+    delete(output_array)
+    return output, true
+}
+
+get_component_contents :: proc(components: ^map[string][]Token, name: string, input_dir: string) -> ([]Token, bool) {
+    contents, present := components[name]
+    if present {
+        return contents, true
+    }
+    path_to_file := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, COMPONENT_PREFIX, name, ".html"})
+    file_contents, read_success := os.read_entire_file(path_to_file)
+    if read_success {
+        contents_tokens := construct_tokens(string(file_contents))
+        components[name] = contents_tokens
+    } else {
+        log.errorf("could not read %s", path_to_file)
+        return {}, false
+    }
+    return contents, true
+}
+
+get_argument_contents :: proc(args: map[string]string, name: string) -> (string, bool) {
+    contents, present := args[name]
+    if !present {
+        log.errorf("arg %s not found", name)
+        return "", false
+    }
+    return contents, true
+}
+
+construct_tokens :: proc(input: string) -> []Token {
+    // Need to read all the inline component definitions here
+    // Maybe also resolve custom components right here so that the final pass
+    // only has to worry about arguments
+    return {}
+}
