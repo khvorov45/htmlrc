@@ -5,59 +5,17 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Linux",
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in library 'htmlrc'",
-      "cargo": {
-        "args": ["test", "--no-run", "--lib", "--package=htmlrc"],
-        "filter": {
-          "name": "htmlrc",
-          "kind": "lib"
-        }
-      },
-      "args": [],
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "type": "lldb",
-      "request": "launch",
-      "name": "Debug executable 'htmlrc'",
-      "cargo": {
-        "args": ["build", "--bin=htmlrc", "--package=htmlrc"],
-        "filter": {
-          "name": "htmlrc",
-          "kind": "bin"
-        }
-      },
-      "args": ["input", "page-plain.html"],
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "type": "lldb",
-      "request": "launch",
-      "name": "Debug unit tests in executable 'htmlrc'",
-      "cargo": {
-        "args": ["test", "--no-run", "--bin=htmlrc", "--package=htmlrc"],
-        "filter": {
-          "name": "htmlrc",
-          "kind": "bin"
-        }
-      },
-      "args": [],
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Odin linux",
-      "type": "lldb",
-      "request": "launch",
-      "program": "out/htmlrc",
+      "program": "build/htmlrc",
       "args": ["input/page-plain.html"]
     },
     {
-      "name": "Odin windows",
+      "name": "Windows",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceRoot}/out/htmlrc.exe",
+      "program": "${workspaceRoot}/build/htmlrc.exe",
       "args": ["input/page-plain.html"],
       "cwd": "${workspaceRoot}"
     }

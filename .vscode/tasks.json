@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "odin build",
+      "label": "build",
       "type": "shell",
       "linux": {
         "command": "./build.sh"
@@ -36,26 +36,13 @@
       }
     },
     {
-      "type": "cargo",
-      "command": "build",
-      "problemMatcher": ["$rustc"],
-      "group": "build",
-      "label": "Build"
-    },
-    {
-      "type": "cargo",
-      "command": "run",
-      "label": "Execute rust",
-      "args": ["--", "input", "page-plain.html"]
-    },
-    {
       "type": "process",
-      "command": "out/htmlrc",
+      "command": "build/htmlrc",
       "windows": {
-        "command": "out/htmlrc.exe"
+        "command": "build/htmlrc.exe"
       },
       "label": "Execute",
-      "args": ["input", "page-plain.html"]
+      "args": ["input/page-plain.html"]
     }
   ]
 }

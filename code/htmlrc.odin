@@ -87,7 +87,7 @@ main :: proc() {
 
     output_dir: string
     {
-        output := "build"
+        output := "out"
         if len(os.args) >= 3 {
             output = os.args[2]
         }
