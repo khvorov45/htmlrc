@@ -408,20 +408,20 @@ resolve_one_string :: proc(input: string, components: ^map[string]string, own_ar
 
 Token :: union {
     PlainString,
-    Component,
-    ArgumentUsed,
+    Component_Used,
+    Argument_Used,
 }
 
 PlainString :: struct {
     value: string,
 }
 
-Component :: struct {
+Component_Used :: struct {
     name: string,
     args: map[string][]Token,
 }
 
-ArgumentUsed :: struct {
+Argument_Used :: struct {
     name: string,
 }
 
@@ -432,7 +432,7 @@ construct_output :: proc(tokens: []Token, components: ^map[string][]Token, args:
     for token_type in tokens {
         switch token in token_type {
             case PlainString: append(&output_array, token.value, input_dir)
-            case Component: {
+            case Component_Used: {
                 contents := get_component_contents(components, token.name, input_dir) or_return
                 args_resolved: map[string]string
                 for name, arg_tokens in token.args {
@@ -442,7 +442,7 @@ construct_output :: proc(tokens: []Token, components: ^map[string][]Token, args:
                 delete(args_resolved)
                 append(&output_array, contents_resolved)
             }
-            case ArgumentUsed: {
+            case Argument_Used: {
                 contents := get_argument_contents(args, token.name) or_return
                 append(&output_array, contents)
             }
