@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+
+<body>
+  <nav>
+    <ul>
+      <NavItem href="/people" icon="<Icon::People/>" />
+      <NavItem href="/things" icon="<Icon::Things/>" />
+    </ul>
+  </nav>
+  <div id="page"></div>
+</body>
+
+<script>
+  routes = {
+    "/people": `<People/>`,
+    "/things": `<Things/>`,
+  }
+  function routeTo(path) {
+    pageElement = document.getElementById("page")
+    pageContents = routes[path]
+    if (pageContents !== undefined) {
+      pageElement.innerHTML = pageContents
+      history.pushState({}, "", path)
+    } else {
+      pageElement.innerHTML = `<NotFound path="${path}"/>`
+    }
+  }
+  routeTo(window.location.pathname)
+  // NOTE(sen) Back browser button
+  window.onpopstate = () => handleRoute(window.location.pathname)
+</script>
+
+{{People
+<div>People</div>
+}} {{Things
+<div>Things</div>
+}} {{NotFound
+<div>Path $path not found</div>
+}} {{NavItem
+<li>
+  <a href="$href" onclick="event.preventDefault();routeTo('$href')">$icon</a>
+</li>
+}} {{Icon {{People <svg></svg>}} {{Things <svg></svg>}} }}

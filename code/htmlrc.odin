@@ -18,8 +18,9 @@ main :: proc() {
     when !ODIN_DEBUG do context.logger.lowest_level = log.Level.Info
     begin_timed_section(Timed_Section.Whole_Program)
 
+    default_output_dir := "out"
     if len(os.args) == 1 || os.args[1] == "--help" || os.args[1] == "-help" || os.args[1] == "help" || os.args[1] == "-h" {
-        log.info("USAGE: htmlrc <input>\n\ninput: an html file or a directory of html files")
+        log.info("USAGE: htmlrc <input> <output>\n\ninput: an html file\noutput: a directory (default: %s)", default_output_dir)
         return
     }
 
@@ -30,8 +31,12 @@ main :: proc() {
         }
     }
 
+    // TODO(sen) rework with the new usage (single-page only for now, everything
+    // in one file for now) in mind
+
     input_dir: string
     input_pages: [dynamic]os.File_Info
+    input_componets: [dynamic]os.File_Info
     {
         input := os.args[1]
         log.debugf("input: %s\n", input)
@@ -58,9 +63,10 @@ main :: proc() {
             }
             for read_entry in read_entries {
                 if !read_entry.is_dir && strings.has_suffix(read_entry.name, ".html") {
-                    test := read_entry.name[0]
                     if !strings.has_prefix(read_entry.name, COMPONENT_PREFIX) {
                         append(&input_pages, read_entry)
+                    } else {
+                        append(&input_componets, read_entry)
                     }
                 }
             }
@@ -461,7 +467,7 @@ get_component_contents :: proc(components: ^map[string][]Token, name: string, in
     path_to_file := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, COMPONENT_PREFIX, name, ".html"})
     file_contents, read_success := os.read_entire_file(path_to_file)
     if read_success {
-        contents_tokens := construct_tokens(string(file_contents))
+        contents_tokens := construct_tokens(string(file_contents), components)
         components[name] = contents_tokens
     } else {
         log.errorf("could not read %s", path_to_file)
@@ -479,7 +485,7 @@ get_argument_contents :: proc(args: map[string]string, name: string) -> (string,
     return contents, true
 }
 
-construct_tokens :: proc(input: string) -> []Token {
+construct_tokens :: proc(input: string, components: ^map[string][]Token) -> []Token {
     // Need to read all the inline component definitions here
     // Maybe also resolve custom components right here so that the final pass
     // only has to worry about arguments
