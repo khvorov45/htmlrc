@@ -1,10 +1,8 @@
 <!DOCTYPE html>
 
 <body>
-  <Card name="John" number="123" />
-  <Card name="Jon" number="234" />
-  <Card name="Jonathan" number="345" />
-  <Card name="Johnny" number="456" />
+  @Card("John", "123") @Card("Jon", "234") @Card("Jonathan", "345")
+  @Card("Johnny", "456")
 </body>
 
 #define Card(name, number) {

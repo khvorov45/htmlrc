@@ -197,11 +197,50 @@ Macro :: struct {
 }
 
 collect_macros :: proc(input: string) -> (string, []Macro, bool) {
-    input_no_macros: string
-    macros: []Macro
-    success := false
+    input := input
+    input_no_macros : [dynamic]string
+    macros : [dynamic]Macro
 
-    return input_no_macros, macros, success
+    macro_mark := "#define"
+    for len(input) > 0 {
+        before_macro_mark: string
+        before_macro_mark, input = split_at(input, index_or_end(input, macro_mark))
+
+        assert(len(before_macro_mark) > 0)
+        append(&input_no_macros, before_macro_mark)
+
+        if len(input) == 0 do break // NOTE(sen) No macro found
+
+        input = input[len(macro_mark):]
+        input = skip_spaces(input)
+
+        if len(input) == 0 {
+            log.error("missing macro definition")
+            return "", {}, false
+        }
+
+        if !unicode.is_alpha(utf8.rune_at_pos(input, 0)) {
+            log.error("macro name should start with a letter")
+            return "", {}, false
+        }
+
+        name: string
+        name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
+
+        if len(name) == 0 {
+            log.error("macro is missing a name")
+            return "", {}, false
+        }
+
+        log.debugf("found macro: %s", name)
+
+        // TODO(sen) Collect parameter names and positions
+    }
+
+    input_no_macros_string := strings.concatenate(input_no_macros[:])
+    delete(input_no_macros)
+
+    return input_no_macros_string, macros[:], true
 }
 
 expand_macros :: proc(input: string, macros: []Macro) -> (string, bool) {
@@ -209,4 +248,29 @@ expand_macros :: proc(input: string, macros: []Macro) -> (string, bool) {
     success := false
 
     return output, success
+}
+
+index_or_end :: proc(input: string, search: string) -> int {
+    result := strings.index(input, search)
+    if result == -1 do result = len(input)
+    return result
+}
+
+index_proc_or_end :: proc(input: string, pr: proc(rune) -> bool, truth := true) -> int {
+    result := strings.index_proc(input, pr, truth)
+    if result == -1 do result = len(input)
+    return result
+}
+
+skip_spaces :: proc(input: string) -> string {
+    first_nonspace := index_proc_or_end(input, strings.is_space, false)
+    return input[first_nonspace:]
+}
+
+is_not_alphanum :: proc(ch: rune) -> bool {
+    return !unicode.is_alpha(ch) && !unicode.is_number(ch)
+}
+
+split_at :: proc(input: string, index: int) -> (string, string) {
+    return input[:index], input[index:]
 }
