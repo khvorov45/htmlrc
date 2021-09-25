@@ -36,13 +36,13 @@
       }
     },
     {
+      "label": "Execute",
       "type": "process",
       "command": "build/htmlrc",
       "windows": {
         "command": "build/htmlrc.exe"
       },
-      "label": "Execute",
-      "args": ["input/page-plain.html"]
+      "args": ["examples/single-page/index.html", "examples/single-page/out"]
     }
   ]
 }

@@ -13,6 +13,7 @@
     "FILENO",
     "fstat",
     "htmlrc",
+    "infof",
     "IRGRP",
     "IROTH",
     "IRUSR",

@@ -9,14 +9,14 @@
       "type": "lldb",
       "request": "launch",
       "program": "build/htmlrc",
-      "args": ["input/page-plain.html"]
+      "args": ["examples/single-page/index.html", "examples/single-page/out"]
     },
     {
       "name": "Windows",
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceRoot}/build/htmlrc.exe",
-      "args": ["input/page-plain.html"],
+      "args": ["examples/single-page/index.html", "examples/single-page/out"],
       "cwd": "${workspaceRoot}"
     }
   ]

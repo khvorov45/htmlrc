@@ -1,16 +1,13 @@
 package htmlrc
 
-import "core:log"
-import "core:intrinsics"
 import "core:fmt"
-import "core:mem"
+import "core:log"
 import "core:os"
-import "core:strings"
+import "core:intrinsics"
 import "core:path/filepath"
+import "core:strings"
 import "core:unicode"
 import "core:unicode/utf8"
-
-COMPONENT_PREFIX :: "_"
 
 main :: proc() {
     context.user_ptr = &Context_Data{};
@@ -18,11 +15,29 @@ main :: proc() {
     when !ODIN_DEBUG do context.logger.lowest_level = log.Level.Info
     begin_timed_section(Timed_Section.Whole_Program)
 
-    default_output_dir := "out"
+    //
+    // SECTION Parse arguments
+    //
+
+    // TODO(sen) Better argument parsing
+    Args :: struct {
+        input_file: string,
+        output_dir: string,
+    }
+    default_args :: proc() -> Args {
+        return Args{input_file="", output_dir="out"}
+    }
+    args := default_args()
     if len(os.args) == 1 || os.args[1] == "--help" || os.args[1] == "-help" || os.args[1] == "help" || os.args[1] == "-h" {
-        log.info("USAGE: htmlrc <input> <output>\n\ninput: an html file\noutput: a directory (default: %s)", default_output_dir)
+        log.info("USAGE: htmlrc <input> <output>\n\ninput: an html file\noutput: a directory (default: %s)", args.output_dir)
         return
     }
+    args.input_file = os.args[1]
+    if len(os.args) == 3 do args.output_dir = os.args[2]
+
+    //
+    // SECTION Validate arguments
+    //
 
     format_os_error :: proc(err: os.Errno) -> string {
         switch err {
@@ -31,111 +46,83 @@ main :: proc() {
         }
     }
 
-    // TODO(sen) rework with the new usage (single-page only for now, everything
-    // in one file for now) in mind
+    // NOTE(sen) Make sure input exists
+    input_file_handle, input_open_error := os.open(args.input_file)
+    if input_open_error != os.ERROR_NONE {
+        log.errorf("failed to open input file '%s': %s", args.input_file, format_os_error(input_open_error))
+        return
+    }
+    os.close(input_file_handle)
 
-    input_dir: string
-    input_pages: [dynamic]os.File_Info
-    input_componets: [dynamic]os.File_Info
-    {
-        input := os.args[1]
-        log.debugf("input: %s\n", input)
-
-        input_handle, open_err := os.open(input)
-        if open_err != os.ERROR_NONE {
-            log.errorf("failed to open input '%s': %s", input, format_os_error(open_err))
-            return
-        }
-        defer os.close(input_handle)
-
-        input_stat, stat_err := os.stat(input, context.temp_allocator)
-        if stat_err != os.ERROR_NONE {
-            log.errorf("failed to read input '%s': %d", input, format_os_error(stat_err))
-            return
-        }
-
-        if input_stat.is_dir {
-            input_dir = input
-            read_entries, read_dir_err := os.read_dir(input_handle, -1, context.temp_allocator)
-            if read_dir_err != os.ERROR_NONE {
-                log.errorf("failed to read input directory '%s': %d", input, format_os_error(read_dir_err))
-                return
-            }
-            for read_entry in read_entries {
-                if !read_entry.is_dir && strings.has_suffix(read_entry.name, ".html") {
-                    if !strings.has_prefix(read_entry.name, COMPONENT_PREFIX) {
-                        append(&input_pages, read_entry)
-                    } else {
-                        append(&input_componets, read_entry)
-                    }
-                }
-            }
-            if len(input_pages) == 0 {
-                log.errorf("no html pages (don't start with '%s') found in input directory '%s'", COMPONENT_PREFIX, input)
-                return
-            }
-        } else if strings.has_suffix(input_stat.name, ".html") {
-            input_dir = filepath.dir(input_stat.fullpath)
-            // NOTE(sen) Allow any name for single-file mode
-            append(&input_pages, input_stat)
-        } else {
-            log.errorf("input '%s' is not a directory and not an html file", input)
-            return
-        }
-
-        log.debugf("input dir: %s", input_dir)
-        log.debugf("input pages:")
-        for input_page in input_pages {
-            log.debugf("%s", input_page.name)
-        }
-        log.debugf("")
+    // NOTE(sen) Make sure input is a file
+    input_file_stat, input_stat_error := os.stat(args.input_file, context.temp_allocator)
+    if input_stat_error != os.ERROR_NONE {
+        log.errorf("failed to scan input file '%s': %s", args.input_file, format_os_error(input_stat_error))
+        return
+    }
+    if input_file_stat.is_dir {
+        log.errorf("input '%s' should be a file, not a directory", args.output_dir)
+        return
     }
 
-    output_dir: string
-    {
-        output := "out"
-        if len(os.args) >= 3 {
-            output = os.args[2]
-        }
-        log.debugf("output dir: %s\n", output)
-
-        output_handle, open_err := os.open(output)
-        if open_err == os.ERROR_NONE {
-            output_dir = output
-        } else if open_err == ERROR_FILE_NOT_FOUND {
-            make_dir_err := make_directory(output)
-            if make_dir_err != os.ERROR_NONE {
-                log.errorf("failed to create output dir '%s': %s", output, format_os_error(make_dir_err))
-                return
-            }
-            output_dir = output
-        } else {
-            log.errorf("failed to open output '%s': %s", output, format_os_error(open_err))
+    // NOTE(sen) Make sure output exists
+    output_dir_handle, output_open_error := os.open(args.output_dir)
+    if output_open_error == ERROR_FILE_NOT_FOUND {
+        make_dir_err := make_directory(args.output_dir)
+        if make_dir_err != os.ERROR_NONE {
+            log.errorf("failed to create output dir '%s': %s", args.output_dir, format_os_error(make_dir_err))
             return
         }
-        os.close(output_handle)
+        output_dir_handle, output_open_error = os.open(args.output_dir)
+    }
+    if output_open_error != os.ERROR_NONE {
+        log.errorf("failed to open output dir '%s': %s", args.output_dir, format_os_error(output_open_error))
+        return
+    }
+    os.close(output_dir_handle)
+
+    // NOTE(sen) Make sure output is a directory
+    output_dir_stat, output_stat_error := os.stat(args.output_dir, context.temp_allocator)
+    if output_stat_error != os.ERROR_NONE {
+        log.errorf("failed to scan output dir '%s': %s", args.output_dir, format_os_error(output_stat_error))
+        return
+    }
+    if !output_dir_stat.is_dir {
+        log.errorf("output '%s' is not a directory", args.output_dir)
+        return
     }
 
-    components : map[string]string
-    for input_page in input_pages {
-        log.debugf("starting resolution of %s\n", input_page.name)
-        input_page_contents, read_success := os.read_entire_file(input_page.fullpath)
-        if !read_success {
-            log.errorf("failed to read input '%s'", input_page.name)
-            return
-        }
-        input_resolved, resolve_success := resolve_one_string(string(input_page_contents), &components, nil, input_dir)
-        if resolve_success {
-            output_path := filepath.join(output_dir, input_page.name)
-            defer delete(output_path)
-            write_success := os.write_entire_file(output_path, transmute([]byte)input_resolved)
-            if !write_success {
-                log.errorf("failed to write output '%s'", output_path)
-            }
-            log.debugf("wrote output: %s", output_path)
-        }
+    //
+    // SECTION Read input, collect and expand macros, write output
+    //
+
+    input_contents, input_read_success := os.read_entire_file(args.input_file)
+    if !input_read_success {
+        log.errorf("failed to read input file '%s'", args.input_file)
+        return
     }
-    log.debugf("")
+
+    input_no_macros, macros, collection_success := collect_macros(string(input_contents))
+    if !collection_success do return
+    delete(input_contents)
+
+    // NOTE(sen) Expand nested macros
+    for mac in &macros {
+        contents_expanded, success := expand_macros(mac.contents, macros)
+        if !success do return
+        mac.contents = contents_expanded
+    }
+
+    input_expanded, expansion_success := expand_macros(input_no_macros, macros)
+    if !expansion_success do return
+    delete(input_no_macros)
+
+    output_file_path := filepath.join(args.output_dir, filepath.base(args.input_file))
+    output_write_success := os.write_entire_file(output_file_path, transmute([]byte)input_expanded)
+    if !output_write_success {
+        log.errorf("failed to write output file '%s'", output_file_path)
+    }
+    log.infof("wrote output to '%s'", output_file_path)
 
     end_timed_section(Timed_Section.Whole_Program)
 }
@@ -204,290 +191,22 @@ foreign libc {
 
 }
 
-resolve_one_string :: proc(input: string, components: ^map[string]string, own_args: map[string]string, input_dir: string) -> (string, bool) {
-    // NOTE(sen) Need to at least have <A/> to have something to resolve
-    if len(input) < 4 {
-        return strings.clone(input), true
-    }
-
-    //
-    // SECTION Process and remove inline component definitions
-    //
-
-    no_inline_components: [dynamic]string
-
-    log.debugf("looking for inline components")
-    component_search_string := input
-    for {
-        inline_component_start := "{{"
-        inline_component_end := "}}"
-        component_start := strings.index(component_search_string, inline_component_start)
-        if component_start == -1 {
-            append(&no_inline_components, component_search_string)
-            break
-        }
-        append(&no_inline_components, component_search_string[:component_start])
-        component_search_string = component_search_string[component_start + len(inline_component_start):]
-
-        first_whitespace := strings.index_proc(component_search_string, strings.is_space)
-        if first_whitespace == -1 {
-            log.errorf("inline component is incomplete")
-            return "", false
-        }
-
-        component_name := component_search_string[:first_whitespace]
-        log.debugf("found: `%s`", component_name)
-
-        component_search_string = component_search_string[first_whitespace + 1:]
-
-        component_end := strings.index(component_search_string, inline_component_end)
-        if component_end == -1 {
-            log.errorf("component %s does not end with '%s'", component_name, inline_component_start)
-            return "", false
-        }
-
-        component_contents := component_search_string[:component_end]
-
-        components[component_name] = strings.trim_space(component_contents)
-
-        component_search_string = component_search_string[component_end + len(inline_component_end):]
-    }
-
-    //
-    // SECTION Replace arguments with values
-    //
-
-    is_not_alphanum :: proc(ch: rune) -> bool { return !unicode.is_alpha(ch) && !unicode.is_number(ch) }
-
-    log.debug("replacing arguments with values")
-    argument_search := strings.concatenate(no_inline_components[:])
-    delete(no_inline_components)
-    no_arguments : [dynamic]string
-    for {
-        arg_index := strings.index_rune(argument_search, '$')
-        if arg_index == -1 || arg_index == len(argument_search) - 1 {
-            append(&no_arguments, argument_search)
-            break
-        }
-        append(&no_arguments, argument_search[:arg_index])
-        argument_search = argument_search[arg_index + 1:]
-        if unicode.is_alpha(utf8.rune_at_pos(argument_search, 0)) {
-            arg_name_end := strings.index_proc(argument_search, is_not_alphanum)
-            if arg_name_end == -1 {
-                arg_name_end = len(argument_search)
-            }
-            arg_name := argument_search[:arg_name_end]
-            log.debugf("found %s", arg_name)
-            arg_value, present := own_args[arg_name]
-            if !present {
-                log.errorf("argument %s used but not passed", arg_value)
-                return "", false
-            }
-            append(&no_arguments, arg_value)
-            argument_search = argument_search[arg_name_end:]
-        } else {
-            append(&no_arguments, "$")
-        }
-    }
-
-    //
-    // SECTION Process and resolve used components
-    //
-
-    log.debug("looking for components used")
-    used_component_search := strings.concatenate(no_arguments[:])
-    delete(no_arguments)
-    output: [dynamic]string
-    for {
-        used_component_index := -1
-        prev_char: rune = 0
-        for ch, index in used_component_search {
-            if prev_char == '<' && unicode.is_upper(ch) {
-                used_component_index = index
-                break
-            }
-            prev_char = ch
-        }
-
-        if used_component_index == -1 {
-            append(&output, used_component_search)
-            break
-        }
-
-        append(&output, used_component_search[:used_component_index - 1])
-        used_component_search = used_component_search[used_component_index:]
-
-        first_non_alphanum := strings.index_proc(used_component_search, is_not_alphanum)
-        if first_non_alphanum == -1 {
-            log.errorf("used component is incomplete")
-            return "", false
-        }
-
-        used_component_name := used_component_search[:first_non_alphanum]
-        log.debugf("found: `%s`", used_component_name)
-
-        used_component_search = used_component_search[first_non_alphanum:]
-
-        used_component_contents: string
-        {
-            contents, present := components[used_component_name]
-            if present {
-                log.debug("found in loaded components")
-                used_component_contents = contents
-            } else {
-                log.debug("not found in loaded components")
-                used_component_path := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, COMPONENT_PREFIX, used_component_name, ".html"})
-                file_contents, success := os.read_entire_file(used_component_path)
-                if success {
-                    used_component_contents = strings.trim_space(string(file_contents))
-                    components[used_component_name] = used_component_contents
-                } else {
-                    log.errorf("could not read %s", used_component_path)
-                    return "", false
-                }
-            }
-        }
-
-        args: map[string]string
-        previous_rune := rune(0)
-        for {
-            if len(used_component_search) == 0 {
-                log.errorf("used component %s is incomplete", used_component_name)
-                return "", false
-            }
-            current_rune := utf8.rune_at_pos(used_component_search, 0)
-            if unicode.is_alpha(current_rune) {
-                name_end := strings.index_proc(used_component_search, is_not_alphanum)
-                if name_end == -1 {
-                    log.error("argument is incomplete")
-                    return "", false
-                }
-                arg_name := used_component_search[:name_end]
-                used_component_search = used_component_search[name_end:]
-                equals := strings.index_rune(used_component_search, '=')
-                if equals == -1 || equals == len(used_component_search) - 1 {
-                    log.errorf("argument %s is incomplete", arg_name)
-                    return "", false
-                }
-                used_component_search = used_component_search[equals + 1:]
-                arg_content_start := strings.index_rune(used_component_search, '"')
-                if arg_content_start == -1 || arg_content_start == len(used_component_search) - 1  {
-                    log.errorf("argument %s is incomplete", arg_name)
-                    return "", false
-                }
-                used_component_search = used_component_search[arg_content_start + 1:]
-                arg_content_end := strings.index_rune(used_component_search, '"')
-                if arg_content_end == -1 {
-                    log.errorf("argument %s is incomplete", arg_name)
-                    return "", false
-                }
-                args[arg_name] = used_component_search[:arg_content_end]
-                used_component_search = used_component_search[arg_content_end + 1:]
-                previous_rune = rune(0)
-            } else {
-                used_component_search = used_component_search[1:]
-                if current_rune == '>' && previous_rune == '/' {
-                    break
-                }
-                previous_rune = current_rune
-            }
-        }
-        if len(args) > 0 {
-            log.debugf("args of %s: {}", used_component_name, args)
-        }
-
-        log.debugf("\nstarting resolution of component %s\n", used_component_name)
-        resolved_component_contents, success := resolve_one_string(used_component_contents, components, args, input_dir)
-        if !success {
-            return "", false
-        }
-        log.debugf("\nfinished resolution of %s\n", used_component_name)
-        delete(args)
-        append(&output, resolved_component_contents)
-    }
-
-    output_string := strings.concatenate(output[:])
-    delete(output)
-
-    return output_string, true
-}
-
-Token :: union {
-    PlainString,
-    Component_Used,
-    Argument_Used,
-}
-
-PlainString :: struct {
-    value: string,
-}
-
-Component_Used :: struct {
+Macro :: struct {
     name: string,
-    args: map[string][]Token,
+    contents: string,
 }
 
-Argument_Used :: struct {
-    name: string,
+collect_macros :: proc(input: string) -> (string, []Macro, bool) {
+    input_no_macros: string
+    macros: []Macro
+    success := false
+
+    return input_no_macros, macros, success
 }
 
-construct_output :: proc(tokens: []Token, components: ^map[string][]Token, args: map[string]string, input_dir: string) -> (output: string, success: bool) {
-    output = ""
-    success = false
-    output_array: [dynamic]string
-    for token_type in tokens {
-        switch token in token_type {
-            case PlainString: append(&output_array, token.value, input_dir)
-            case Component_Used: {
-                contents := get_component_contents(components, token.name, input_dir) or_return
-                args_resolved: map[string]string
-                for name, arg_tokens in token.args {
-                    args_resolved[name] = construct_output(arg_tokens, components, args, input_dir) or_return
-                }
-                contents_resolved := construct_output(contents, components, args_resolved, input_dir) or_return
-                delete(args_resolved)
-                append(&output_array, contents_resolved)
-            }
-            case Argument_Used: {
-                contents := get_argument_contents(args, token.name) or_return
-                append(&output_array, contents)
-            }
-        }
-    }
-    output = strings.concatenate(output_array[:])
-    delete(output_array)
-    return output, true
-}
+expand_macros :: proc(input: string, macros: []Macro) -> (string, bool) {
+    output: string
+    success := false
 
-get_component_contents :: proc(components: ^map[string][]Token, name: string, input_dir: string) -> ([]Token, bool) {
-    contents, present := components[name]
-    if present {
-        return contents, true
-    }
-    path_to_file := strings.concatenate({input_dir, filepath.SEPARATOR_STRING, COMPONENT_PREFIX, name, ".html"})
-    file_contents, read_success := os.read_entire_file(path_to_file)
-    if read_success {
-        contents_tokens := construct_tokens(string(file_contents), components)
-        components[name] = contents_tokens
-    } else {
-        log.errorf("could not read %s", path_to_file)
-        return {}, false
-    }
-    return contents, true
-}
-
-get_argument_contents :: proc(args: map[string]string, name: string) -> (string, bool) {
-    contents, present := args[name]
-    if !present {
-        log.errorf("arg %s not found", name)
-        return "", false
-    }
-    return contents, true
-}
-
-construct_tokens :: proc(input: string, components: ^map[string][]Token) -> []Token {
-    // Need to read all the inline component definitions here
-    // Maybe also resolve custom components right here so that the final pass
-    // only has to worry about arguments
-    return {}
+    return output, success
 }
