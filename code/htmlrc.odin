@@ -193,6 +193,7 @@ foreign libc {
 
 Macro :: struct {
     name: string,
+    args: []string,
     contents: string,
 }
 
@@ -224,17 +225,44 @@ collect_macros :: proc(input: string) -> (string, []Macro, bool) {
             return "", {}, false
         }
 
-        name: string
-        name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
+        mac_name: string
+        mac_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
+        assert(len(mac_name) > 0)
+        log.debugf("found macro: %s", mac_name)
 
-        if len(name) == 0 {
-            log.error("macro is missing a name")
+        mac := Macro{}
+        mac.name = strings.clone(mac_name)
+
+        input = skip_spaces(input)
+        if utf8.rune_at_pos(input, 0) != '(' {
+            log.errorf("macro name '%s' should be followed by '('", mac.name)
             return "", {}, false
         }
+        input = input[1:]
+        input = skip_spaces(input)
 
-        log.debugf("found macro: %s", name)
+        mac_args: [dynamic]string
+        for utf8.rune_at_pos(input, 0) != ')' {
+            if !unicode.is_alpha(utf8.rune_at_pos(input, 0)) {
+                log.error("Contents of () after macro name should have comma-separated parameter names or nothing")
+                return "", {}, false
+            }
 
-        // TODO(sen) Collect parameter names and positions
+            arg_name: string
+            arg_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
+            assert(len(arg_name) > 0)
+            log.debugf("found argument %s", arg_name)
+            append(&mac_args, strings.clone(arg_name))
+
+            input = skip_spaces(input)
+            if utf8.rune_at_pos(input, 0) == ',' do input = input[1:]
+            input = skip_spaces(input)
+        }
+        mac.args = mac_args[:]
+
+        // TODO(sen) Grab macro contents
+
+        append(&macros, mac)
     }
 
     input_no_macros_string := strings.concatenate(input_no_macros[:])
