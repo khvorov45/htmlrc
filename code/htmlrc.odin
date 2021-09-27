@@ -259,8 +259,28 @@ collect_macros :: proc(input: string) -> (string, []Macro, bool) {
             input = skip_spaces(input)
         }
         mac.args = mac_args[:]
+        assert(utf8.rune_at_pos(input, 0) == ')')
+        input = input[1:]
+        input = skip_spaces(input)
 
-        // TODO(sen) Grab macro contents
+        if utf8.rune_at_pos(input, 0) != '{' {
+            log.error("Macro body should start with '{'")
+            return "", {}, false
+        }
+        input = input[1:]
+        input = skip_spaces(input)
+
+        mac_contents: string;
+        mac_contents, input = split_at(input, index_rune_or_end(input, '}'))
+        if len(input) == 0 {
+            log.error("Contents of () after macro name should have comma-separated parameter names or nothing")
+            return "", {}, false
+        }
+        assert(utf8.rune_at_pos(input, 0) == '}')
+        input = input[1:]
+        input = skip_spaces(input)
+
+        mac.contents = strings.clone(mac_contents)
 
         append(&macros, mac)
     }
@@ -286,6 +306,12 @@ index_or_end :: proc(input: string, search: string) -> int {
 
 index_proc_or_end :: proc(input: string, pr: proc(rune) -> bool, truth := true) -> int {
     result := strings.index_proc(input, pr, truth)
+    if result == -1 do result = len(input)
+    return result
+}
+
+index_rune_or_end :: proc(input: string, rn: rune) -> int {
+    result := strings.index_rune(input, rn)
     if result == -1 do result = len(input)
     return result
 }
