@@ -106,14 +106,8 @@ main :: proc() {
     if !collection_success do return
     delete(input_contents)
 
-    // NOTE(sen) Expand nested macros
-    for mac in &macros {
-        contents_expanded, success := expand_macros(mac.contents, macros)
-        if !success do return
-        mac.contents = contents_expanded
-    }
-
-    input_expanded, expansion_success := expand_macros(input_no_macros, macros)
+    log.debugf("expanding macros in input")
+    input_expanded, expansion_success := expand_macros(input_no_macros, &macros)
     if !expansion_success do return
     delete(input_no_macros)
 
@@ -195,6 +189,7 @@ Macro :: struct {
     name: string,
     args: []string,
     contents: string,
+    expanded: bool,
 }
 
 collect_macros :: proc(input: string) -> (string, []Macro, bool) {
@@ -281,6 +276,7 @@ collect_macros :: proc(input: string) -> (string, []Macro, bool) {
         input = skip_spaces(input)
 
         mac.contents = strings.clone(mac_contents)
+        mac.expanded = false
 
         append(&macros, mac)
     }
@@ -291,9 +287,32 @@ collect_macros :: proc(input: string) -> (string, []Macro, bool) {
     return input_no_macros_string, macros[:], true
 }
 
-expand_macros :: proc(input: string, macros: []Macro) -> (string, bool) {
+expand_macros :: proc(input: string, macros: ^[]Macro) -> (string, bool) {
+    input := input
     output: string
     success := false
+
+    input_expanded: [dynamic]string
+    for len(input) > 0 {
+        before_macro_use: string
+        before_macro_use, input = split_at(input, index_rune_proc_or_end(input, '@', unicode.is_alpha))
+        if len(before_macro_use) > 0 do append(&input_expanded, before_macro_use)
+        if len(input) == 0 do break // NOTE(sen) No used macros found
+
+        assert(utf8.rune_at_pos(input, 0) == '@')
+        input = input[1:]
+        assert(len(input) > 0)
+
+        used_macro_name: string
+        used_macro_name, input = split_at(input, strings.index_proc(input, is_not_alphanum))
+        log.debugf("found used macro: %s", used_macro_name)
+
+        // TODO(sen) Check if macro is expanded and expand as necessary
+
+        // TODO(sen) Collect arguments
+
+        // TODO(sen) Write contents of the (expanded) macro with arguments replaced by what's been passed
+    }
 
     return output, success
 }
@@ -313,6 +332,16 @@ index_proc_or_end :: proc(input: string, pr: proc(rune) -> bool, truth := true) 
 index_rune_or_end :: proc(input: string, rn: rune) -> int {
     result := strings.index_rune(input, rn)
     if result == -1 do result = len(input)
+    return result
+}
+
+index_rune_proc_or_end :: proc(input: string, rn: rune, pr: proc(rune) -> bool, truth := true) -> int {
+    result := len(input)
+    rune_index := strings.index_rune(input, rn)
+    if rune_index != -1 &&
+        pr(utf8.rune_at_pos(input[rune_index:], 1)) == truth {
+        result = rune_index
+    }
     return result
 }
 
