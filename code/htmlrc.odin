@@ -311,6 +311,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             return "", false
         }
 
+        // TODO(sen) Catch circular dependencies
         if !mac.expanded {
             old_contents := mac.contents
             expanded_contents, success := expand_macros(old_contents, macros)
