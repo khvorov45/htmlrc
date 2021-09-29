@@ -302,7 +302,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         assert(len(input) > 0)
 
         used_macro_name: string
-        used_macro_name, input = split_at(input, strings.index_proc(input, is_not_alphanum))
+        used_macro_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
         log.debugf("found used macro: %s", used_macro_name)
 
         mac, mac_found := &macros[used_macro_name]
@@ -329,7 +329,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         input = input[1:]
         input = skip_spaces(input)
 
-        used_args: [dynamic]string
+        passed_args: [dynamic]string
         for utf8.rune_at_pos(input, 0) != ')' {
             if (utf8.rune_at_pos(input, 0) != '"') {
                 log.errorf("macro %s arguments should be wrapped in '\"'", used_macro_name)
@@ -342,7 +342,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
                 log.errorf("unmatched '\"' in macro %s", used_macro_name)
                 return "", false
             }
-            append(&used_args, arg_used)
+            append(&passed_args, arg_used)
             input = input[1:]
             input = skip_spaces(input)
             if (utf8.rune_at_pos(input, 0) == ',') do input = input[1:]
@@ -351,7 +351,42 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         assert(utf8.rune_at_pos(input, 0) == ')')
         input = input[1:]
 
-        // TODO(sen) Write contents of the (expanded) macro with arguments replaced by what's been passed
+        if len(passed_args) != len(mac.args) {
+            log.errorf("macro %s has %d arguments but %d were passed", mac.name, len(mac.args), len(passed_args))
+            return "", false
+        }
+
+        mac_contents := mac.contents
+        for len(mac_contents) > 0 {
+            before_arg_use: string
+            before_arg_use, mac_contents = split_at(mac_contents, index_rune_proc_or_end(mac_contents, '$', unicode.is_alpha))
+            if len(before_arg_use) > 0 do append(&input_expanded, before_arg_use)
+            if len(mac_contents) == 0 do break // NOTE(sen) No used argument found
+
+            assert(utf8.rune_at_pos(mac_contents, 0) == '$')
+            mac_contents = mac_contents[1:]
+            assert(len(mac_contents) > 0)
+
+            used_arg_name: string
+            used_arg_name, mac_contents = split_at(mac_contents, index_proc_or_end(mac_contents, is_not_alphanum))
+
+            used_arg_position := -1
+            for mac_arg, mac_arg_index in mac.args {
+                if mac_arg == used_arg_name {
+                    used_arg_position = mac_arg_index
+                    break
+                }
+            }
+
+            // TODO(sen) Do this elsewhere?
+            if used_arg_position == -1 {
+                log.errorf("macro %s uses argument undeclared argument %s", mac.name, used_arg_name)
+                return "", false
+            }
+
+            passed_arg_content := passed_args[used_arg_position]
+            append(&input_expanded, passed_arg_content)
+        }
     }
 
     output := strings.concatenate(input_expanded[:])
