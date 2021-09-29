@@ -192,10 +192,10 @@ Macro :: struct {
     expanded: bool,
 }
 
-collect_macros :: proc(input: string) -> (string, []Macro, bool) {
+collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
     input := input
     input_no_macros : [dynamic]string
-    macros : [dynamic]Macro
+    macros : map[string]Macro
 
     macro_mark := "#define"
     for len(input) > 0 {
@@ -278,19 +278,17 @@ collect_macros :: proc(input: string) -> (string, []Macro, bool) {
         mac.contents = strings.clone(mac_contents)
         mac.expanded = false
 
-        append(&macros, mac)
+        macros[mac.name] = mac
     }
 
     input_no_macros_string := strings.concatenate(input_no_macros[:])
     delete(input_no_macros)
 
-    return input_no_macros_string, macros[:], true
+    return input_no_macros_string, macros, true
 }
 
-expand_macros :: proc(input: string, macros: ^[]Macro) -> (string, bool) {
+expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool) {
     input := input
-    output: string
-    success := false
 
     input_expanded: [dynamic]string
     for len(input) > 0 {
@@ -307,14 +305,30 @@ expand_macros :: proc(input: string, macros: ^[]Macro) -> (string, bool) {
         used_macro_name, input = split_at(input, strings.index_proc(input, is_not_alphanum))
         log.debugf("found used macro: %s", used_macro_name)
 
-        // TODO(sen) Check if macro is expanded and expand as necessary
+        mac, mac_found := &macros[used_macro_name]
+        if !mac_found {
+            log.errorf("macro %s used but not found", used_macro_name)
+            return "", false
+        }
+
+        if !mac.expanded {
+            old_contents := mac.contents
+            expanded_contents, success := expand_macros(old_contents, macros)
+            if !success do return "", false
+            delete(old_contents)
+            mac.contents = expanded_contents
+            mac.expanded = true
+        }
 
         // TODO(sen) Collect arguments
 
         // TODO(sen) Write contents of the (expanded) macro with arguments replaced by what's been passed
     }
 
-    return output, success
+    output := strings.concatenate(input_expanded[:])
+    delete(input_expanded)
+
+    return output, true
 }
 
 index_or_end :: proc(input: string, search: string) -> int {
