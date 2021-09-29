@@ -321,7 +321,35 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             mac.expanded = true
         }
 
-        // TODO(sen) Collect arguments
+        input = skip_spaces(input)
+        if (utf8.rune_at_pos(input, 0) != '(') {
+            log.errorf("macro name %s should be followed by '('", used_macro_name)
+            return "", false
+        }
+        input = input[1:]
+        input = skip_spaces(input)
+
+        used_args: [dynamic]string
+        for utf8.rune_at_pos(input, 0) != ')' {
+            if (utf8.rune_at_pos(input, 0) != '"') {
+                log.errorf("macro %s arguments should be wrapped in '\"'", used_macro_name)
+                return "", false
+            }
+            input = input[1:]
+            arg_used: string
+            arg_used, input = split_at(input, index_rune_or_end(input, '"'))
+            if len(input) == 0 {
+                log.errorf("unmatched '\"' in macro %s", used_macro_name)
+                return "", false
+            }
+            append(&used_args, arg_used)
+            input = input[1:]
+            input = skip_spaces(input)
+            if (utf8.rune_at_pos(input, 0) == ',') do input = input[1:]
+            input = skip_spaces(input)
+        }
+        assert(utf8.rune_at_pos(input, 0) == ')')
+        input = input[1:]
 
         // TODO(sen) Write contents of the (expanded) macro with arguments replaced by what's been passed
     }
