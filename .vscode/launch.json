@@ -16,7 +16,10 @@
       "type": "cppvsdbg",
       "request": "launch",
       "program": "${workspaceRoot}/build/htmlrc.exe",
-      "args": ["examples/single-page/index.html", "examples/single-page/out"],
+      "args": [
+        "examples/single-page-routing/index.html",
+        "examples/single-page-routing/out"
+      ],
       "cwd": "${workspaceRoot}"
     }
   ]

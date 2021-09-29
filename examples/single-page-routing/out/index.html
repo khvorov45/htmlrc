@@ -3,7 +3,13 @@
 <body>
   <nav>
     <ul>
-      @NavItem("/people" "People") @NavItem("/things" "Things")
+      <li>
+  <a href="/people" onclick="event.preventDefault();routeTo('/people')">People</a>
+</li>
+ <li>
+  <a href="/things" onclick="event.preventDefault();routeTo('/things')">Things</a>
+</li>
+
     </ul>
   </nav>
   <div id="page"></div>
@@ -11,8 +17,10 @@
 
 <script>
   routes = {
-    "/people": `@People()`,
-    "/things": `@Things()`,
+    "/people": `<div>People</div>
+`,
+    "/things": `<div>Things</div>
+`,
   }
   function routeTo(path) {
     pageElement = document.getElementById("page")
@@ -21,7 +29,8 @@
       pageElement.innerHTML = pageContents
       history.pushState({}, "", path)
     } else {
-      pageElement.innerHTML = `@NotFound("${path}")`
+      pageElement.innerHTML = `<div>Path ${path} not found</div>
+`
     }
   }
   routeTo(window.location.pathname)
@@ -29,14 +38,3 @@
   window.onpopstate = () => handleRoute(window.location.pathname)
 </script>
 
-#define People() {
-<div>People</div>
-} #define Things() {
-<div>Things</div>
-} #define NotFound(path) {
-<div>Path $path not found</div>
-} #define NavItem(href, label) {
-<li>
-  <a href="$href" onclick="event.preventDefault();routeTo('$href')">$label</a>
-</li>
-}

@@ -202,8 +202,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         before_macro_mark: string
         before_macro_mark, input = split_at(input, index_or_end(input, macro_mark))
 
-        assert(len(before_macro_mark) > 0)
-        append(&input_no_macros, before_macro_mark)
+        if len(before_macro_mark) > 0 do append(&input_no_macros, before_macro_mark)
 
         if len(input) == 0 do break // NOTE(sen) No macro found
 
