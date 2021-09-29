@@ -5,11 +5,9 @@
     <ul>
       <li>
   <a href="/people" onclick="event.preventDefault();routeTo('/people')">People</a>
-</li>
- <li>
+</li> <li>
   <a href="/things" onclick="event.preventDefault();routeTo('/things')">Things</a>
 </li>
-
     </ul>
   </nav>
   <div id="page"></div>
@@ -17,10 +15,8 @@
 
 <script>
   routes = {
-    "/people": `<div>People</div>
-`,
-    "/things": `<div>Things</div>
-`,
+    "/people": `<div>People</div>`,
+    "/things": `<div>Things</div>`,
   }
   function routeTo(path) {
     pageElement = document.getElementById("page")
@@ -29,8 +25,7 @@
       pageElement.innerHTML = pageContents
       history.pushState({}, "", path)
     } else {
-      pageElement.innerHTML = `<div>Path ${path} not found</div>
-`
+      pageElement.innerHTML = `<div>Path ${path} not found</div>`
     }
   }
   routeTo(window.location.pathname)

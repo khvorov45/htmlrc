@@ -274,7 +274,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         input = input[1:]
         input = skip_spaces(input)
 
-        mac.contents = strings.clone(mac_contents)
+        mac.contents = strings.clone(strings.trim_right_space(mac_contents))
         mac.expanded = false
 
         macros[mac.name] = mac
