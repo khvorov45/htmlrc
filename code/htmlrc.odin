@@ -301,8 +301,6 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         input = skip_first_rune(input)
         input = skip_spaces(input)
 
-        // TODO(sen) Make sure the only arguments used are the ones that were passed
-
         mac.contents = strings.clone(strings.trim_right_space(mac_contents))
         mac.expanded = false
 
@@ -400,7 +398,6 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
 
             used_arg_position := index_elem(mac.args, used_arg_name)
 
-            // TODO(sen) Do this elsewhere?
             if used_arg_position == -1 {
                 log.errorf("macro %s uses argument undeclared argument %s", mac.name, used_arg_name)
                 return "", false
