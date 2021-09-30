@@ -398,13 +398,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
 
             assert(len(used_arg_name) > 0)
 
-            used_arg_position := -1
-            for mac_arg, mac_arg_index in mac.args {
-                if mac_arg == used_arg_name {
-                    used_arg_position = mac_arg_index
-                    break
-                }
-            }
+            used_arg_position := index_elem(mac.args, used_arg_name)
 
             // TODO(sen) Do this elsewhere?
             if used_arg_position == -1 {
@@ -488,4 +482,15 @@ split_placeholder :: proc(input: string, prefix: rune) -> (before: string, place
     placeholder_name, after = split_at(after, index_proc_or_end(after, is_not_alphanum))
 
     return before, placeholder_name, after
+}
+
+index_elem :: proc(array: []$T, elem: T) -> int {
+    result := -1
+    for value, index in array {
+        if value == elem {
+            result = index
+            break
+        }
+    }
+    return result
 }
