@@ -11,7 +11,8 @@ import "core:unicode/utf8"
 
 main :: proc() {
     context.user_ptr = &Context_Data{};
-    context.logger.procedure = logger_proc // TODO(sen) Better logging
+    context.logger.procedure = logger_proc
+    context.logger.data = &Logger_Data{};
     when !ODIN_DEBUG do context.logger.lowest_level = log.Level.Info
     begin_timed_section(Timed_Section.Whole_Program)
 
@@ -101,10 +102,13 @@ main :: proc() {
         log.errorf("failed to read input file '%s'", args.input_file)
         return
     }
+    log.debugf("read input '%s'", args.input_file)
 
+    log.debugf("collecting macros from '%s'", args.input_file)
     input_no_macros, macros, collection_success := collect_macros(string(input_contents))
     if !collection_success do return
     delete(input_contents)
+    log.debugf("collected %d macros from '%s'", len(macros), args.input_file);
 
     log.debugf("expanding macros in input")
     input_expanded, expansion_success := expand_macros(input_no_macros, &macros)
@@ -141,8 +145,24 @@ Timed_Section :: enum {
     Count,
 }
 
+Logger_Data :: struct {
+    indent_level: int,
+}
+
 logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+    logger_data := cast(^Logger_Data)data
+    for n_indents := logger_data.indent_level; n_indents > 0; n_indents -= 1 do fmt.print("    ")
     fmt.println(text)
+}
+
+inc_indent_level :: proc() {
+    logger_data := cast(^Logger_Data)context.logger.data
+    logger_data.indent_level += 1
+}
+
+dec_indent_level :: proc() {
+    logger_data := cast(^Logger_Data)context.logger.data
+    logger_data.indent_level -= 1
 }
 
 when ODIN_OS == "windows" {
@@ -193,6 +213,9 @@ Macro :: struct {
 }
 
 collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
+    inc_indent_level()
+    defer dec_indent_level()
+
     input := input
     input_no_macros : [dynamic]string
     macros : map[string]Macro
@@ -222,7 +245,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         mac_name: string
         mac_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
         assert(len(mac_name) > 0)
-        log.debugf("found macro: %s", mac_name)
+        log.debugf("found macro '%s'", mac_name)
 
         mac := Macro{}
         mac.name = strings.clone(mac_name)
@@ -235,8 +258,12 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         input = input[1:]
         input = skip_spaces(input)
 
+        // NOTE(sen) Collect macro arguments
         mac_args: [dynamic]string
         for utf8.rune_at_pos(input, 0) != ')' {
+            inc_indent_level()
+            defer dec_indent_level()
+
             if !unicode.is_alpha(utf8.rune_at_pos(input, 0)) {
                 log.error("Contents of () after macro name should have comma-separated parameter names or nothing")
                 return "", {}, false
@@ -245,7 +272,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             arg_name: string
             arg_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
             assert(len(arg_name) > 0)
-            log.debugf("found argument %s", arg_name)
+            log.debugf("found argument '%s'", arg_name)
             append(&mac_args, strings.clone(arg_name))
 
             input = skip_spaces(input)
@@ -274,6 +301,8 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         input = input[1:]
         input = skip_spaces(input)
 
+        // TODO(sen) Make sure the only arguments used are the ones that were passed
+
         mac.contents = strings.clone(strings.trim_right_space(mac_contents))
         mac.expanded = false
 
@@ -287,6 +316,9 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
 }
 
 expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool) {
+    inc_indent_level()
+    defer dec_indent_level()
+
     input := input
 
     input_expanded: [dynamic]string
@@ -302,7 +334,10 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
 
         used_macro_name: string
         used_macro_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
-        log.debugf("found used macro: %s", used_macro_name)
+        log.debugf("found used macro '%s'", used_macro_name)
+
+        inc_indent_level()
+        defer dec_indent_level()
 
         mac, mac_found := &macros[used_macro_name]
         if !mac_found {
@@ -313,6 +348,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         // TODO(sen) Catch circular dependencies
         if !mac.expanded {
             old_contents := mac.contents
+            log.debugf("expanding contents")
             expanded_contents, success := expand_macros(old_contents, macros)
             if !success do return "", false
             delete(old_contents)
@@ -341,6 +377,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
                 log.errorf("unmatched '\"' in macro %s", used_macro_name)
                 return "", false
             }
+            log.debugf("found passed argument '%s' (pos %d)", arg_used, len(passed_args))
             append(&passed_args, arg_used)
             input = input[1:]
             input = skip_spaces(input)
@@ -384,6 +421,9 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             }
 
             passed_arg_content := passed_args[used_arg_position]
+
+            log.debugf("replaced used argument '%s' with passed '%s'", used_arg_name, passed_arg_content)
+
             append(&input_expanded, passed_arg_content)
         }
     }
