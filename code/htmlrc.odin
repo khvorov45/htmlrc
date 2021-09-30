@@ -29,7 +29,7 @@ main :: proc() {
     }
     args := default_args()
     if len(os.args) == 1 || os.args[1] == "--help" || os.args[1] == "-help" || os.args[1] == "help" || os.args[1] == "-h" {
-        log.info("USAGE: htmlrc <input> <output>\n\ninput: an html file\noutput: a directory (default: %s)", args.output_dir)
+        log.infof("USAGE: htmlrc <input> <output>\n\ninput: an html file\noutput: a directory (default: '%s')", args.output_dir)
         return
     }
     args.input_file = os.args[1]
