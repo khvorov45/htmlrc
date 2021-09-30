@@ -237,7 +237,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             return "", {}, false
         }
 
-        if !unicode.is_alpha(utf8.rune_at_pos(input, 0)) {
+        if !unicode.is_alpha(first_rune(input)) {
             log.error("macro name should start with a letter")
             return "", {}, false
         }
@@ -251,7 +251,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
         mac.name = strings.clone(mac_name)
 
         input = skip_spaces(input)
-        if utf8.rune_at_pos(input, 0) != '(' {
+        if first_rune(input) != '(' {
             log.errorf("macro name '%s' should be followed by '('", mac.name)
             return "", {}, false
         }
@@ -260,11 +260,11 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
 
         // NOTE(sen) Collect macro arguments
         mac_args: [dynamic]string
-        for utf8.rune_at_pos(input, 0) != ')' {
+        for first_rune(input) != ')' {
             inc_indent_level()
             defer dec_indent_level()
 
-            if !unicode.is_alpha(utf8.rune_at_pos(input, 0)) {
+            if !unicode.is_alpha(first_rune(input)) {
                 log.error("Contents of () after macro name should have comma-separated parameter names or nothing")
                 return "", {}, false
             }
@@ -276,15 +276,15 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             append(&mac_args, strings.clone(arg_name))
 
             input = skip_spaces(input)
-            if utf8.rune_at_pos(input, 0) == ',' do input = input[1:]
+            if first_rune(input) == ',' do input = input[1:]
             input = skip_spaces(input)
         }
         mac.args = mac_args[:]
-        assert(utf8.rune_at_pos(input, 0) == ')')
+        assert(first_rune(input) == ')')
         input = input[1:]
         input = skip_spaces(input)
 
-        if utf8.rune_at_pos(input, 0) != '{' {
+        if first_rune(input) != '{' {
             log.error("Macro body should start with '{'")
             return "", {}, false
         }
@@ -297,7 +297,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             log.error("Contents of () after macro name should have comma-separated parameter names or nothing")
             return "", {}, false
         }
-        assert(utf8.rune_at_pos(input, 0) == '}')
+        assert(first_rune(input) == '}')
         input = input[1:]
         input = skip_spaces(input)
 
@@ -328,7 +328,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         if len(before_macro_use) > 0 do append(&input_expanded, before_macro_use)
         if len(input) == 0 do break // NOTE(sen) No used macros found
 
-        assert(utf8.rune_at_pos(input, 0) == '@')
+        assert(first_rune(input) == '@')
         input = input[1:]
         assert(len(input) > 0)
 
@@ -357,7 +357,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         }
 
         input = skip_spaces(input)
-        if (utf8.rune_at_pos(input, 0) != '(') {
+        if (first_rune(input) != '(') {
             log.errorf("macro name %s should be followed by '('", used_macro_name)
             return "", false
         }
@@ -365,8 +365,8 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         input = skip_spaces(input)
 
         passed_args: [dynamic]string
-        for utf8.rune_at_pos(input, 0) != ')' {
-            if (utf8.rune_at_pos(input, 0) != '"') {
+        for first_rune(input) != ')' {
+            if (first_rune(input) != '"') {
                 log.errorf("macro %s arguments should be wrapped in '\"'", used_macro_name)
                 return "", false
             }
@@ -381,10 +381,10 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             append(&passed_args, arg_used)
             input = input[1:]
             input = skip_spaces(input)
-            if (utf8.rune_at_pos(input, 0) == ',') do input = input[1:]
+            if (first_rune(input) == ',') do input = input[1:]
             input = skip_spaces(input)
         }
-        assert(utf8.rune_at_pos(input, 0) == ')')
+        assert(first_rune(input) == ')')
         input = input[1:]
 
         if len(passed_args) != len(mac.args) {
@@ -399,7 +399,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             if len(before_arg_use) > 0 do append(&input_expanded, before_arg_use)
             if len(mac_contents) == 0 do break // NOTE(sen) No used argument found
 
-            assert(utf8.rune_at_pos(mac_contents, 0) == '$')
+            assert(first_rune(mac_contents) == '$')
             mac_contents = mac_contents[1:]
             assert(len(mac_contents) > 0)
 
@@ -473,4 +473,8 @@ is_not_alphanum :: proc(ch: rune) -> bool {
 
 split_at :: proc(input: string, index: int) -> (string, string) {
     return input[:index], input[index:]
+}
+
+first_rune :: proc(input: string) -> rune {
+    return utf8.rune_at_pos(input, 0)
 }
