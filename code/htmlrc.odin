@@ -324,16 +324,12 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
     input_expanded: [dynamic]string
     for len(input) > 0 {
         before_macro_use: string
-        before_macro_use, input = split_at(input, index_rune_proc_or_end(input, '@', unicode.is_alpha))
-        if len(before_macro_use) > 0 do append(&input_expanded, before_macro_use)
-        if len(input) == 0 do break // NOTE(sen) No used macros found
-
-        assert(first_rune(input) == '@')
-        input = skip_first_rune(input)
-        assert(len(input) > 0)
-
         used_macro_name: string
-        used_macro_name, input = split_at(input, index_proc_or_end(input, is_not_alphanum))
+        before_macro_use, used_macro_name, input = split_placeholder(input, '@')
+        if len(before_macro_use) > 0 do append(&input_expanded, before_macro_use)
+        if len(used_macro_name) == 0 && len(input) == 0 do break // NOTE(sen) No used macros found
+
+        assert(len(used_macro_name) > 0)
         log.debugf("found used macro '%s'", used_macro_name)
 
         inc_indent_level()
@@ -395,16 +391,12 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         mac_contents := mac.contents
         for len(mac_contents) > 0 {
             before_arg_use: string
-            before_arg_use, mac_contents = split_at(mac_contents, index_rune_proc_or_end(mac_contents, '$', unicode.is_alpha))
-            if len(before_arg_use) > 0 do append(&input_expanded, before_arg_use)
-            if len(mac_contents) == 0 do break // NOTE(sen) No used argument found
-
-            assert(first_rune(mac_contents) == '$')
-            mac_contents = mac_contents[1:]
-            assert(len(mac_contents) > 0)
-
             used_arg_name: string
-            used_arg_name, mac_contents = split_at(mac_contents, index_proc_or_end(mac_contents, is_not_alphanum))
+            before_arg_use, used_arg_name, mac_contents = split_placeholder(mac_contents, '$')
+            if len(before_arg_use) > 0 do append(&input_expanded, before_arg_use)
+            if len(used_arg_name) == 0 && len(mac_contents) == 0 do break // NOTE(sen) No used argument found
+
+            assert(len(used_arg_name) > 0)
 
             used_arg_position := -1
             for mac_arg, mac_arg_index in mac.args {
@@ -481,4 +473,19 @@ first_rune :: proc(input: string) -> rune {
 
 skip_first_rune :: proc(input: string) -> string {
     return input[utf8.rune_size(first_rune(input)):]
+}
+
+/// Find placeholders like @name
+split_placeholder :: proc(input: string, prefix: rune) -> (before: string, placeholder_name: string, after: string) {
+    before, after = split_at(input, index_rune_proc_or_end(input, prefix, unicode.is_alpha))
+    if len(after) == 0 do return // NOTE(sen) No placeholders found
+
+    assert(first_rune(after) == prefix)
+    after = skip_first_rune(after)
+    assert(len(after) > 0)
+    assert(unicode.is_alpha(first_rune(after)))
+
+    placeholder_name, after = split_at(after, index_proc_or_end(after, is_not_alphanum))
+
+    return before, placeholder_name, after
 }
