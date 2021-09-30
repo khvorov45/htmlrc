@@ -255,7 +255,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             log.errorf("macro name '%s' should be followed by '('", mac.name)
             return "", {}, false
         }
-        input = input[1:]
+        input = skip_first_rune(input)
         input = skip_spaces(input)
 
         // NOTE(sen) Collect macro arguments
@@ -276,19 +276,19 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             append(&mac_args, strings.clone(arg_name))
 
             input = skip_spaces(input)
-            if first_rune(input) == ',' do input = input[1:]
+            if first_rune(input) == ',' do input = skip_first_rune(input)
             input = skip_spaces(input)
         }
         mac.args = mac_args[:]
         assert(first_rune(input) == ')')
-        input = input[1:]
+        input = skip_first_rune(input)
         input = skip_spaces(input)
 
         if first_rune(input) != '{' {
             log.error("Macro body should start with '{'")
             return "", {}, false
         }
-        input = input[1:]
+        input = skip_first_rune(input)
         input = skip_spaces(input)
 
         mac_contents: string;
@@ -298,7 +298,7 @@ collect_macros :: proc(input: string) -> (string, map[string]Macro, bool) {
             return "", {}, false
         }
         assert(first_rune(input) == '}')
-        input = input[1:]
+        input = skip_first_rune(input)
         input = skip_spaces(input)
 
         // TODO(sen) Make sure the only arguments used are the ones that were passed
@@ -329,7 +329,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
         if len(input) == 0 do break // NOTE(sen) No used macros found
 
         assert(first_rune(input) == '@')
-        input = input[1:]
+        input = skip_first_rune(input)
         assert(len(input) > 0)
 
         used_macro_name: string
@@ -361,7 +361,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             log.errorf("macro name %s should be followed by '('", used_macro_name)
             return "", false
         }
-        input = input[1:]
+        input = skip_first_rune(input)
         input = skip_spaces(input)
 
         passed_args: [dynamic]string
@@ -370,7 +370,7 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
                 log.errorf("macro %s arguments should be wrapped in '\"'", used_macro_name)
                 return "", false
             }
-            input = input[1:]
+            input = skip_first_rune(input)
             arg_used: string
             arg_used, input = split_at(input, index_rune_or_end(input, '"'))
             if len(input) == 0 {
@@ -379,13 +379,13 @@ expand_macros :: proc(input: string, macros: ^map[string]Macro) -> (string, bool
             }
             log.debugf("found passed argument '%s' (pos %d)", arg_used, len(passed_args))
             append(&passed_args, arg_used)
-            input = input[1:]
+            input = skip_first_rune(input)
             input = skip_spaces(input)
-            if (first_rune(input) == ',') do input = input[1:]
+            if (first_rune(input) == ',') do input = skip_first_rune(input)
             input = skip_spaces(input)
         }
         assert(first_rune(input) == ')')
-        input = input[1:]
+        input = skip_first_rune(input)
 
         if len(passed_args) != len(mac.args) {
             log.errorf("macro %s has %d arguments but %d were passed", mac.name, len(mac.args), len(passed_args))
@@ -477,4 +477,8 @@ split_at :: proc(input: string, index: int) -> (string, string) {
 
 first_rune :: proc(input: string) -> rune {
     return utf8.rune_at_pos(input, 0)
+}
+
+skip_first_rune :: proc(input: string) -> string {
+    return input[utf8.rune_size(first_rune(input)):]
 }
