@@ -445,6 +445,21 @@ index_rune_proc_or_end :: proc(input: string, rn: rune, pr: proc(rune) -> bool, 
     return result
 }
 
+index_proc_rune_proc_or_end :: proc(input: string, pr1: proc(rune) -> bool, rn: rune, pr2: proc(rune) -> bool) -> int {
+    result := len(input)
+    rune_index := strings.index_rune(input, rn)
+    if rune_index != -1 && pr2(utf8.rune_at_pos(input[rune_index:], 1)) {
+        if rune_index > 0 {
+            if pr1(utf8.rune_at_pos(input, rune_index - 1)) {
+                result = rune_index
+            }
+        } else {
+            result = rune_index
+        }
+    }
+    return result
+}
+
 skip_spaces :: proc(input: string) -> string {
     first_nonspace := index_proc_or_end(input, strings.is_space, false)
     return input[first_nonspace:]
@@ -452,6 +467,10 @@ skip_spaces :: proc(input: string) -> string {
 
 is_not_alphanum :: proc(ch: rune) -> bool {
     return !unicode.is_alpha(ch) && !unicode.is_number(ch)
+}
+
+is_not_alpha :: proc(ch: rune) -> bool {
+    return !unicode.is_alpha(ch)
 }
 
 split_at :: proc(input: string, index: int) -> (string, string) {
@@ -468,7 +487,7 @@ skip_first_rune :: proc(input: string) -> string {
 
 /// Find placeholders like @name
 split_placeholder :: proc(input: string, prefix: rune) -> (before: string, placeholder_name: string, after: string) {
-    before, after = split_at(input, index_rune_proc_or_end(input, prefix, unicode.is_alpha))
+    before, after = split_at(input, index_proc_rune_proc_or_end(input, is_not_alpha, prefix, unicode.is_alpha))
     if len(after) == 0 do return // NOTE(sen) No placeholders found
 
     assert(first_rune(after) == prefix)
